@@ -9,3 +9,5 @@ data/media/
 .DS_Store
 npm-debug.log*
 *.tsbuildinfo
+cloudflared
+cloudflared.tgz
