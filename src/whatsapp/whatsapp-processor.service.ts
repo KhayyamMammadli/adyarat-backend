@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PromptEnhancerService } from '../ai/prompt-enhancer.service';
 import { Contact } from '../common/domain';
 import { DataStoreService } from '../supabase/data-store.service';
 import { MediaStoreService } from '../media/media-store.service';
@@ -23,6 +24,7 @@ export class WhatsAppProcessorService {
     private readonly dataStore: DataStoreService,
     private readonly mediaStore: MediaStoreService,
     private readonly whatsapp: WhatsAppClientService,
+    private readonly promptEnhancer: PromptEnhancerService,
   ) {}
 
   async process(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -157,10 +159,12 @@ export class WhatsAppProcessorService {
       return;
     }
 
+    const enhancedPrompt = await this.promptEnhancer.enhance(rawText);
+
     await this.dataStore.createJob({
       contactId: contact.id,
       provider: this.config.get<string>('VIDEO_PROVIDER') ?? 'mock',
-      prompt: rawText,
+      prompt: enhancedPrompt,
       inputStoragePath: contact.pendingImagePath,
       inputMimeType: contact.pendingImageMime ?? 'image/jpeg',
     });

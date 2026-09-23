@@ -21,6 +21,12 @@ services:
         sync: false
       - key: META_WEBHOOK_VERIFY_TOKEN
         sync: false
+      - key: AI_TEXT_PROVIDER
+        value: none
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
       - key: VIDEO_PROVIDER
         value: mock
       - key: RUNWAYML_API_SECRET

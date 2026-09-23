@@ -1,4 +1,5 @@
 export type VideoProviderName = 'mock' | 'runway';
+export type AiTextProviderName = 'none' | 'gemini';
 
 export interface Environment {
   NODE_ENV: string;
@@ -8,6 +9,9 @@ export interface Environment {
   META_PHONE_NUMBER_ID?: string;
   META_APP_SECRET?: string;
   META_WEBHOOK_VERIFY_TOKEN?: string;
+  AI_TEXT_PROVIDER: AiTextProviderName;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL: string;
   VIDEO_PROVIDER: VideoProviderName;
   MOCK_VIDEO_PATH: string;
   RUNWAYML_API_SECRET?: string;
@@ -41,11 +45,20 @@ const positiveInteger = (value: unknown, fallback: number, name: string): number
 export function validateEnvironment(raw: Record<string, unknown>): Environment {
   const nodeEnv = optional(raw.NODE_ENV) ?? 'development';
   const videoProvider = (optional(raw.VIDEO_PROVIDER) ?? 'mock') as VideoProviderName;
+  const aiTextProvider = (optional(raw.AI_TEXT_PROVIDER) ?? 'none') as AiTextProviderName;
   const runwayDuration = positiveInteger(raw.RUNWAY_DURATION, 5, 'RUNWAY_DURATION');
   const maxPromptLength = positiveInteger(raw.MAX_PROMPT_LENGTH, 1000, 'MAX_PROMPT_LENGTH');
 
   if (!['mock', 'runway'].includes(videoProvider)) {
     throw new Error('VIDEO_PROVIDER must be either "mock" or "runway"');
+  }
+
+  if (!['none', 'gemini'].includes(aiTextProvider)) {
+    throw new Error('AI_TEXT_PROVIDER must be either "none" or "gemini"');
+  }
+
+  if (aiTextProvider === 'gemini' && !optional(raw.GEMINI_API_KEY)) {
+    throw new Error('GEMINI_API_KEY is required when AI_TEXT_PROVIDER=gemini');
   }
 
   if (videoProvider === 'runway' && !optional(raw.RUNWAYML_API_SECRET)) {
@@ -91,6 +104,9 @@ export function validateEnvironment(raw: Record<string, unknown>): Environment {
     META_PHONE_NUMBER_ID: optional(raw.META_PHONE_NUMBER_ID),
     META_APP_SECRET: optional(raw.META_APP_SECRET),
     META_WEBHOOK_VERIFY_TOKEN: optional(raw.META_WEBHOOK_VERIFY_TOKEN),
+    AI_TEXT_PROVIDER: aiTextProvider,
+    GEMINI_API_KEY: optional(raw.GEMINI_API_KEY),
+    GEMINI_MODEL: optional(raw.GEMINI_MODEL) ?? 'gemini-3.8-flash',
     VIDEO_PROVIDER: videoProvider,
     MOCK_VIDEO_PATH: optional(raw.MOCK_VIDEO_PATH) ?? 'assets/mock-video.mp4',
     RUNWAYML_API_SECRET: optional(raw.RUNWAYML_API_SECRET),

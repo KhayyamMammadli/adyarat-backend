@@ -7,6 +7,8 @@ flowchart TD
   W --> E[(Webhook events)]
   E --> P[Message worker]
   P --> S[(Supabase və private storage)]
+  P --> A[Gemini prompt enhancer]
+  A --> P
   P --> J[(Generation jobs)]
   J --> G[Video worker]
   G --> V[Mock və ya Runway]
@@ -18,15 +20,18 @@ flowchart TD
 
 1. İstifadəçi məhsul şəklini göndərir.
 2. Backend şəkli private storage-a yazır və qısa təsvir istəyir.
-3. Mətn gəldikdə `generation_jobs` cədvəlinə iş əlavə olunur.
-4. Video worker şəkli və prompt-u seçilmiş providera göndərir.
-5. Nəticə dərhal storage-a kopyalanır və Meta media API vasitəsilə istifadəçiyə ötürülür.
+3. Mətn gəldikdə Gemini aktivdirsə onu Runway üçün peşəkar ingilis promptuna çevirir.
+4. Gemini əlçatan olmadıqda orijinal mətn fallback kimi istifadə olunur.
+5. Təkmilləşdirilmiş prompt ilə `generation_jobs` cədvəlinə iş əlavə olunur.
+6. Video worker şəkli və prompt-u seçilmiş providera göndərir.
+7. Nəticə dərhal storage-a kopyalanır və Meta media API vasitəsilə istifadəçiyə ötürülür.
 
 ## Komponentlər
 
 - `WhatsAppController`: verify və imzalı webhook qəbul edir.
 - `WhatsAppWebhookWorker`: gələn hadisələri asinxron emal edir.
 - `WhatsAppProcessorService`: dialoq vəziyyətini və əmrləri idarə edir.
+- `PromptEnhancerService`: Gemini vasitəsilə video promptunu təkmilləşdirir və xəta zamanı orijinal prompta qayıdır.
 - `GenerationWorkerService`: video işini başladır, nəticəni saxlayır və göndərir.
 - `VideoProviderService`: `mock` və `runway` adapteridir.
 - `DataStoreService`: Supabase aktiv deyilsə in-memory fallback verir.

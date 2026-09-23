@@ -11,6 +11,7 @@ WhatsApp-da məhsul şəklini və reklam təsvirini qəbul edib qısa AI videosu
 - asinxron webhook və video worker-ləri
 - pulsuz lokal sınaq üçün hazır mock MP4
 - real video üçün Runway image-to-video inteqrasiyası
+- Azərbaycan və türk dilində yazılan təsvirləri Runway üçün peşəkar ingilis promptuna çevirən Gemini inteqrasiyası
 - Supabase database və private Storage inteqrasiyası
 - Supabase olmadıqda in-memory/lokal fallback
 - health endpoint, Dockerfile və Render blueprint
@@ -23,6 +24,7 @@ WhatsApp-da məhsul şəklini və reklam təsvirini qəbul edib qısa AI videosu
 - Meta Developer tətbiqi və WhatsApp Cloud API test nömrəsi
 - Production üçün Supabase layihəsi
 - Real AI video üçün Runway API açarı
+- İstəyə bağlı prompt təkmilləşdirməsi üçün Gemini API açarı
 
 ## 1. Lokal başladın
 
@@ -69,7 +71,17 @@ Production üçün migration-u tətbiq edin və `.env`-ə server secret key əla
 
 Supabase olmadan bütün proses lokal test edilə bilər, lakin restart zamanı database məlumatı silinir.
 
-## 5. Real video generation-a keçin
+## 5. Gemini prompt təkmilləşdirməsini aktiv edin
+
+```env
+AI_TEXT_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+Gemini əlçatan olmadıqda və ya sorğu xəta verdikdə video işi istifadəçinin orijinal mətni ilə davam edir. Funksiyanı söndürmək üçün `AI_TEXT_PROVIDER=none` yazın.
+
+## 6. Real video generation-a keçin
 
 ```env
 VIDEO_PROVIDER=runway
@@ -86,8 +98,9 @@ Runway ödənişli xidmətdir. Nəticə URL-i müvəqqəti olduğu üçün backe
 1. İstifadəçi məhsul şəklini göndərir.
 2. Bot videoda nə baş verməli olduğunu soruşur.
 3. İstifadəçi, məsələn, `Kamera qəhvəyə yaxınlaşsın, buxar qalxsın, premium reklam olsun` yazır.
-4. Backend video işi yaradır.
-5. Hazır MP4 həmin söhbətə göndərilir.
+4. Gemini təsviri Runway üçün peşəkar ingilis promptuna çevirir.
+5. Backend video işi yaradır.
+6. Hazır MP4 həmin söhbətə göndərilir.
 
 ## Test və build
 
