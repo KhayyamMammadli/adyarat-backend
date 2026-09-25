@@ -3,9 +3,7 @@ export interface WhatsAppTextMessage {
   id: string;
   timestamp: string;
   type: 'text';
-  text: {
-    body: string;
-  };
+  text: { body: string };
 }
 
 export interface WhatsAppImageMessage {
@@ -48,6 +46,25 @@ export interface WhatsAppDocumentMessage {
   };
 }
 
+export interface WhatsAppInteractiveMessage {
+  from: string;
+  id: string;
+  timestamp: string;
+  type: 'interactive';
+  interactive: {
+    type: 'button_reply' | 'list_reply';
+    button_reply?: {
+      id: string;
+      title: string;
+    };
+    list_reply?: {
+      id: string;
+      title: string;
+      description?: string;
+    };
+  };
+}
+
 export interface WhatsAppUnknownMessage {
   from: string;
   id: string;
@@ -61,6 +78,7 @@ export type WhatsAppMessage =
   | WhatsAppImageMessage
   | WhatsAppAudioMessage
   | WhatsAppDocumentMessage
+  | WhatsAppInteractiveMessage
   | WhatsAppUnknownMessage;
 
 export interface WhatsAppStatus {
