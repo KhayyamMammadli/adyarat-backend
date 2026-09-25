@@ -1,7 +1,23 @@
-export type ContactState = 'new' | 'awaiting_prompt' | 'processing';
-export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';
-export type EventStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type MessageDirection = 'inbound' | 'outbound';
+export type ContactState =
+  | 'new'
+  | 'awaiting_prompt'
+  | 'processing';
+
+export type JobStatus =
+  | 'queued'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+export type EventStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+export type MessageDirection =
+  | 'inbound'
+  | 'outbound';
 
 export interface Contact {
   id: string;
@@ -55,4 +71,8 @@ export interface MessageRecord {
   type: string;
   content: unknown;
   status: string;
+}
+
+export interface ConversationMessage extends MessageRecord {
+  createdAt: string;
 }
