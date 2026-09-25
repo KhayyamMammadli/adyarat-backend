@@ -92,11 +92,16 @@ export class WhatsAppProcessorService {
         .markAsRead(message.id)
         .catch((error: unknown) => {
           this.logger.warn(
-            `Could not mark message ${message.id} as read: ${String(error)}`,
+            `Could not mark message ${message.id} as read: ${String(
+              error,
+            )}`,
           );
         });
 
-      await this.routeMessage(contact, message);
+      await this.routeMessage(
+        contact,
+        message,
+      );
     }
   }
 
@@ -150,7 +155,9 @@ export class WhatsAppProcessorService {
     message: WhatsAppImageMessage,
   ): Promise<void> {
     if (
-      await this.dataStore.hasActiveJob(contact.id)
+      await this.dataStore.hasActiveJob(
+        contact.id,
+      )
     ) {
       await this.reply(
         contact,
@@ -175,7 +182,9 @@ export class WhatsAppProcessorService {
     }
 
     const maxBytes =
-      this.config.get<number>('MAX_IMAGE_BYTES') ??
+      this.config.get<number>(
+        'MAX_IMAGE_BYTES',
+      ) ??
       5 * 1024 * 1024;
 
     if (
@@ -227,8 +236,11 @@ export class WhatsAppProcessorService {
     contact: Contact,
     message: WhatsAppTextMessage,
   ): Promise<void> {
-    const rawText = message.text.body.trim();
-    const command = normalizeCommand(rawText);
+    const rawText =
+      message.text.body.trim();
+
+    const command =
+      normalizeCommand(rawText);
 
     if (
       [
@@ -327,7 +339,6 @@ export class WhatsAppProcessorService {
             : parsed.provider
         } Bakı haqqında qısa məlumat ver`,
       );
-
       return;
     }
 
@@ -376,6 +387,27 @@ export class WhatsAppProcessorService {
       message.interactive.list_reply?.id ??
       message.interactive.button_reply?.id ??
       '';
+
+    if (choiceId === 'quick_menu') {
+      await this.sendMainMenu(contact);
+      return;
+    }
+
+    if (choiceId === 'quick_ai') {
+      await this.reply(
+        contact,
+        '💬 Sualınızı adi mətn kimi yazın. AI cavab verəcək.',
+      );
+      return;
+    }
+
+    if (choiceId === 'quick_video') {
+      await this.reply(
+        contact,
+        '🎬 Məhsul şəklini göndərin. Sonra video təsvirini yazın.',
+      );
+      return;
+    }
 
     if (choiceId === 'menu_ai') {
       await this.reply(
@@ -472,28 +504,37 @@ export class WhatsAppProcessorService {
           currentMessageId,
         );
 
-      const result = await this.ai.answer({
-        text,
-        provider,
-        history,
-      });
+      const result =
+        await this.ai.answer({
+          text,
+          provider,
+          history,
+        });
 
       await this.reply(
         contact,
-        `🤖 ${providerLabel(result.provider)}:\n${result.text}`,
+        `🤖 ${providerLabel(
+          result.provider,
+        )}:\n${result.text}`,
         {
           provider: result.provider,
         },
       );
+
+      await this.sendQuickActions(contact);
     } catch (error) {
       this.logger.warn(
-        `AI chat failed: ${this.errorMessage(error)}`,
+        `AI chat failed: ${this.errorMessage(
+          error,
+        )}`,
       );
 
       await this.reply(
         contact,
-        'AI hazırda cavab verə bilmədi. Bir az sonra yenidən yoxlayın və ya KÖMƏK yazın.',
+        'AI hazırda cavab verə bilmədi. Bir az sonra yenidən yoxlayın.',
       );
+
+      await this.sendQuickActions(contact);
     }
   }
 
@@ -548,6 +589,8 @@ export class WhatsAppProcessorService {
           task: 'transcription',
         },
       );
+
+      await this.sendQuickActions(contact);
     } catch (error) {
       this.logger.warn(
         `Audio transcription failed: ${this.errorMessage(
@@ -561,6 +604,8 @@ export class WhatsAppProcessorService {
           error,
         )}`,
       );
+
+      await this.sendQuickActions(contact);
     }
   }
 
@@ -615,6 +660,8 @@ export class WhatsAppProcessorService {
         },
         status: 'sent',
       });
+
+      await this.sendQuickActions(contact);
     } catch (error) {
       this.logger.warn(
         `Document translation failed: ${this.errorMessage(
@@ -628,6 +675,8 @@ export class WhatsAppProcessorService {
           error,
         )}`,
       );
+
+      await this.sendQuickActions(contact);
     }
   }
 
@@ -720,6 +769,8 @@ export class WhatsAppProcessorService {
         contact,
         'Video artıq hazırlanır və bu mərhələdə dayandırıla bilmir.',
       );
+
+      await this.sendQuickActions(contact);
       return;
     }
 
@@ -736,6 +787,8 @@ export class WhatsAppProcessorService {
       contact,
       'Video sorğusu ləğv edildi. İndi adi sualınızı yaza bilərsiniz.',
     );
+
+    await this.sendQuickActions(contact);
   }
 
   private async sendStatus(
@@ -751,6 +804,8 @@ export class WhatsAppProcessorService {
         contact,
         'Aktiv video sorğunuz yoxdur.',
       );
+
+      await this.sendQuickActions(contact);
       return;
     }
 
@@ -767,6 +822,8 @@ export class WhatsAppProcessorService {
         labels[job.status] ?? job.status
       }`,
     );
+
+    await this.sendQuickActions(contact);
   }
 
   private async conversationHistory(
@@ -893,6 +950,34 @@ export class WhatsAppProcessorService {
       },
       status: 'sent',
     });
+  }
+
+  private async sendQuickActions(
+    contact: Contact,
+  ): Promise<void> {
+    try {
+      const messageId =
+        await this.whatsapp.sendQuickActions(
+          contact.waId,
+        );
+
+      await this.dataStore.recordMessage({
+        waMessageId: messageId,
+        contactId: contact.id,
+        direction: 'outbound',
+        type: 'interactive',
+        content: {
+          menu: 'quick-actions',
+        },
+        status: 'sent',
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not send quick actions: ${this.errorMessage(
+          error,
+        )}`,
+      );
+    }
   }
 
   private imageExtension(
