@@ -16,20 +16,14 @@ import { SupabaseService } from './supabase.service';
 type ContactPatch = Partial<
   Pick<
     Contact,
-    | 'profileName'
-    | 'state'
-    | 'pendingImagePath'
-    | 'pendingImageMime'
+    'profileName' | 'state' | 'pendingImagePath' | 'pendingImageMime'
   >
 >;
 
 type JobPatch = Partial<
   Pick<
     GenerationJob,
-    | 'status'
-    | 'outputStoragePath'
-    | 'providerJobId'
-    | 'errorMessage'
+    'status' | 'outputStoragePath' | 'providerJobId' | 'errorMessage'
   >
 >;
 
@@ -83,44 +77,18 @@ interface DbMessage {
 @Injectable()
 export class DataStoreService {
   private readonly contacts = new Map<string, Contact>();
-
-  private readonly contactsByWaId = new Map<
-    string,
-    string
-  >();
-
-  private readonly webhookEvents = new Map<
-    string,
-    WebhookEvent
-  >();
-
-  private readonly eventIdsByKey = new Map<
-    string,
-    string
-  >();
-
-  private readonly jobs = new Map<
-    string,
-    GenerationJob
-  >();
-
+  private readonly contactsByWaId = new Map<string, string>();
+  private readonly webhookEvents = new Map<string, WebhookEvent>();
+  private readonly eventIdsByKey = new Map<string, string>();
+  private readonly jobs = new Map<string, GenerationJob>();
   private readonly messageIds = new Set<string>();
-
-  private readonly messageStatuses = new Map<
-    string,
-    string
-  >();
-
+  private readonly messageStatuses = new Map<string, string>();
   private readonly messages: ConversationMessage[] = [];
 
-  constructor(
-    private readonly supabase: SupabaseService,
-  ) {}
+  constructor(private readonly supabase: SupabaseService) {}
 
   persistenceMode(): 'supabase' | 'memory' {
-    return this.supabase.isEnabled()
-      ? 'supabase'
-      : 'memory';
+    return this.supabase.isEnabled() ? 'supabase' : 'memory';
   }
 
   async enqueueWebhook(
@@ -169,14 +137,11 @@ export class DataStoreService {
     throw error;
   }
 
-  async claimNextWebhook():
-    Promise<WebhookEvent | undefined> {
+  async claimNextWebhook(): Promise<WebhookEvent | undefined> {
     if (!this.supabase.isEnabled()) {
       const event = [...this.webhookEvents.values()]
         .filter((item) => item.status === 'pending')
-        .sort((a, b) =>
-          a.createdAt.localeCompare(b.createdAt),
-        )[0];
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
 
       if (!event) {
         return undefined;
@@ -189,16 +154,14 @@ export class DataStoreService {
       return { ...event };
     }
 
-    const {
-      data: candidate,
-      error: readError,
-    } = await this.supabase.client
-      .from('webhook_events')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle<DbWebhookEvent>();
+    const { data: candidate, error: readError } =
+      await this.supabase.client
+        .from('webhook_events')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle<DbWebhookEvent>();
 
     if (readError) {
       throw readError;
@@ -208,26 +171,23 @@ export class DataStoreService {
       return undefined;
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('webhook_events')
-        .update({
-          status: 'processing',
-          attempts: candidate.attempts + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', candidate.id)
-        .eq('status', 'pending')
-        .select('*')
-        .maybeSingle<DbWebhookEvent>();
+    const { data, error } = await this.supabase.client
+      .from('webhook_events')
+      .update({
+        status: 'processing',
+        attempts: candidate.attempts + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', candidate.id)
+      .eq('status', 'pending')
+      .select('*')
+      .maybeSingle<DbWebhookEvent>();
 
     if (error) {
       throw error;
     }
 
-    return data
-      ? this.toWebhookEvent(data)
-      : undefined;
+    return data ? this.toWebhookEvent(data) : undefined;
   }
 
   async completeWebhook(id: string): Promise<void> {
@@ -238,11 +198,7 @@ export class DataStoreService {
     id: string,
     errorMessage: string,
   ): Promise<void> {
-    await this.updateWebhook(
-      id,
-      'failed',
-      errorMessage,
-    );
+    await this.updateWebhook(id, 'failed', errorMessage);
   }
 
   private async updateWebhook(
@@ -283,20 +239,17 @@ export class DataStoreService {
     profileName?: string,
   ): Promise<Contact> {
     if (!this.supabase.isEnabled()) {
-      const existingId =
-        this.contactsByWaId.get(waId);
+      const existingId = this.contactsByWaId.get(waId);
 
       if (existingId) {
-        const existing =
-          this.contacts.get(existingId)!;
+        const existing = this.contacts.get(existingId)!;
 
         if (
           profileName &&
           profileName !== existing.profileName
         ) {
           existing.profileName = profileName;
-          existing.updatedAt =
-            new Date().toISOString();
+          existing.updatedAt = new Date().toISOString();
         }
 
         return { ...existing };
@@ -319,14 +272,12 @@ export class DataStoreService {
       return { ...contact };
     }
 
-    const {
-      data: existing,
-      error: readError,
-    } = await this.supabase.client
-      .from('wa_contacts')
-      .select('*')
-      .eq('wa_id', waId)
-      .maybeSingle<DbContact>();
+    const { data: existing, error: readError } =
+      await this.supabase.client
+        .from('wa_contacts')
+        .select('*')
+        .eq('wa_id', waId)
+        .maybeSingle<DbContact>();
 
     if (readError) {
       throw readError;
@@ -345,16 +296,15 @@ export class DataStoreService {
       return this.toContact(existing);
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('wa_contacts')
-        .insert({
-          wa_id: waId,
-          profile_name: profileName ?? null,
-          state: 'new',
-        })
-        .select('*')
-        .single<DbContact>();
+    const { data, error } = await this.supabase.client
+      .from('wa_contacts')
+      .insert({
+        wa_id: waId,
+        profile_name: profileName ?? null,
+        state: 'new',
+      })
+      .select('*')
+      .single<DbContact>();
 
     if (error) {
       throw error;
@@ -368,24 +318,20 @@ export class DataStoreService {
   ): Promise<Contact | undefined> {
     if (!this.supabase.isEnabled()) {
       const contact = this.contacts.get(id);
-
       return contact ? { ...contact } : undefined;
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('wa_contacts')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle<DbContact>();
+    const { data, error } = await this.supabase.client
+      .from('wa_contacts')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle<DbContact>();
 
     if (error) {
       throw error;
     }
 
-    return data
-      ? this.toContact(data)
-      : undefined;
+    return data ? this.toContact(data) : undefined;
   }
 
   async updateContact(
@@ -396,9 +342,7 @@ export class DataStoreService {
       const contact = this.contacts.get(id);
 
       if (!contact) {
-        throw new Error(
-          `Contact ${id} not found`,
-        );
+        throw new Error(`Contact ${id} not found`);
       }
 
       Object.assign(contact, patch, {
@@ -413,8 +357,7 @@ export class DataStoreService {
     };
 
     if ('profileName' in patch) {
-      dbPatch.profile_name =
-        patch.profileName ?? null;
+      dbPatch.profile_name = patch.profileName ?? null;
     }
 
     if ('state' in patch) {
@@ -431,13 +374,12 @@ export class DataStoreService {
         patch.pendingImageMime ?? null;
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('wa_contacts')
-        .update(dbPatch)
-        .eq('id', id)
-        .select('*')
-        .single<DbContact>();
+    const { data, error } = await this.supabase.client
+      .from('wa_contacts')
+      .update(dbPatch)
+      .eq('id', id)
+      .select('*')
+      .single<DbContact>();
 
     if (error) {
       throw error;
@@ -450,14 +392,11 @@ export class DataStoreService {
     message: MessageRecord,
   ): Promise<boolean> {
     if (!this.supabase.isEnabled()) {
-      if (
-        this.messageIds.has(message.waMessageId)
-      ) {
+      if (this.messageIds.has(message.waMessageId)) {
         return false;
       }
 
       this.messageIds.add(message.waMessageId);
-
       this.messageStatuses.set(
         message.waMessageId,
         message.status,
@@ -498,11 +437,7 @@ export class DataStoreService {
     status: string,
   ): Promise<void> {
     if (!this.supabase.isEnabled()) {
-      this.messageStatuses.set(
-        waMessageId,
-        status,
-      );
-
+      this.messageStatuses.set(waMessageId, status);
       return;
     }
 
@@ -522,25 +457,19 @@ export class DataStoreService {
   ): Promise<ConversationMessage[]> {
     if (!this.supabase.isEnabled()) {
       return this.messages
-        .filter(
-          (item) =>
-            item.contactId === contactId,
-        )
+        .filter((item) => item.contactId === contactId)
         .slice(-limit);
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('wa_messages')
-        .select(
-          'wa_message_id,contact_id,direction,type,content,status,created_at',
-        )
-        .eq('contact_id', contactId)
-        .order('created_at', {
-          ascending: false,
-        })
-        .limit(limit)
-        .returns<DbMessage[]>();
+    const { data, error } = await this.supabase.client
+      .from('wa_messages')
+      .select(
+        'wa_message_id,contact_id,direction,type,content,status,created_at',
+      )
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+      .returns<DbMessage[]>();
 
     if (error) {
       throw error;
@@ -578,21 +507,18 @@ export class DataStoreService {
       return { ...job };
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('generation_jobs')
-        .insert({
-          contact_id: input.contactId,
-          status: 'queued',
-          provider: input.provider,
-          prompt: input.prompt,
-          input_storage_path:
-            input.inputStoragePath,
-          input_mime_type:
-            input.inputMimeType,
-        })
-        .select('*')
-        .single<DbGenerationJob>();
+    const { data, error } = await this.supabase.client
+      .from('generation_jobs')
+      .insert({
+        contact_id: input.contactId,
+        status: 'queued',
+        provider: input.provider,
+        prompt: input.prompt,
+        input_storage_path: input.inputStoragePath,
+        input_mime_type: input.inputMimeType,
+      })
+      .select('*')
+      .single<DbGenerationJob>();
 
     if (error) {
       throw error;
@@ -601,31 +527,23 @@ export class DataStoreService {
     return this.toGenerationJob(data);
   }
 
-  async hasActiveJob(
-    contactId: string,
-  ): Promise<boolean> {
+  async hasActiveJob(contactId: string): Promise<boolean> {
     if (!this.supabase.isEnabled()) {
       return [...this.jobs.values()].some(
         (job) =>
           job.contactId === contactId &&
-          ['queued', 'processing'].includes(
-            job.status,
-          ),
+          ['queued', 'processing'].includes(job.status),
       );
     }
 
-    const { count, error } =
-      await this.supabase.client
-        .from('generation_jobs')
-        .select('id', {
-          count: 'exact',
-          head: true,
-        })
-        .eq('contact_id', contactId)
-        .in('status', [
-          'queued',
-          'processing',
-        ]);
+    const { count, error } = await this.supabase.client
+      .from('generation_jobs')
+      .select('id', {
+        count: 'exact',
+        head: true,
+      })
+      .eq('contact_id', contactId)
+      .in('status', ['queued', 'processing']);
 
     if (error) {
       throw error;
@@ -634,13 +552,10 @@ export class DataStoreService {
     return (count ?? 0) > 0;
   }
 
-  async claimNextJob():
-    Promise<GenerationJob | undefined> {
+  async claimNextJob(): Promise<GenerationJob | undefined> {
     if (!this.supabase.isEnabled()) {
       const job = [...this.jobs.values()]
-        .filter(
-          (item) => item.status === 'queued',
-        )
+        .filter((item) => item.status === 'queued')
         .sort((a, b) =>
           a.createdAt.localeCompare(b.createdAt),
         )[0];
@@ -650,24 +565,19 @@ export class DataStoreService {
       }
 
       job.status = 'processing';
-      job.updatedAt =
-        new Date().toISOString();
+      job.updatedAt = new Date().toISOString();
 
       return { ...job };
     }
 
-    const {
-      data: candidate,
-      error: readError,
-    } = await this.supabase.client
-      .from('generation_jobs')
-      .select('*')
-      .eq('status', 'queued')
-      .order('created_at', {
-        ascending: true,
-      })
-      .limit(1)
-      .maybeSingle<DbGenerationJob>();
+    const { data: candidate, error: readError } =
+      await this.supabase.client
+        .from('generation_jobs')
+        .select('*')
+        .eq('status', 'queued')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle<DbGenerationJob>();
 
     if (readError) {
       throw readError;
@@ -677,18 +587,16 @@ export class DataStoreService {
       return undefined;
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('generation_jobs')
-        .update({
-          status: 'processing',
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq('id', candidate.id)
-        .eq('status', 'queued')
-        .select('*')
-        .maybeSingle<DbGenerationJob>();
+    const { data, error } = await this.supabase.client
+      .from('generation_jobs')
+      .update({
+        status: 'processing',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', candidate.id)
+      .eq('status', 'queued')
+      .select('*')
+      .maybeSingle<DbGenerationJob>();
 
     if (error) {
       throw error;
@@ -697,6 +605,42 @@ export class DataStoreService {
     return data
       ? this.toGenerationJob(data)
       : undefined;
+  }
+
+  async getStaleProcessingJobs(
+    updatedBefore: string,
+    limit = 10,
+  ): Promise<GenerationJob[]> {
+    if (!this.supabase.isEnabled()) {
+      return [...this.jobs.values()]
+        .filter(
+          (job) =>
+            job.status === 'processing' &&
+            job.updatedAt < updatedBefore,
+        )
+        .sort((a, b) =>
+          a.updatedAt.localeCompare(b.updatedAt),
+        )
+        .slice(0, limit)
+        .map((job) => ({ ...job }));
+    }
+
+    const { data, error } = await this.supabase.client
+      .from('generation_jobs')
+      .select('*')
+      .eq('status', 'processing')
+      .lt('updated_at', updatedBefore)
+      .order('updated_at', { ascending: true })
+      .limit(limit)
+      .returns<DbGenerationJob[]>();
+
+    if (error) {
+      throw error;
+    }
+
+    return (data ?? []).map((row) =>
+      this.toGenerationJob(row),
+    );
   }
 
   async updateJob(
@@ -740,13 +684,12 @@ export class DataStoreService {
         patch.errorMessage ?? null;
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('generation_jobs')
-        .update(dbPatch)
-        .eq('id', id)
-        .select('*')
-        .single<DbGenerationJob>();
+    const { data, error } = await this.supabase.client
+      .from('generation_jobs')
+      .update(dbPatch)
+      .eq('id', id)
+      .select('*')
+      .single<DbGenerationJob>();
 
     if (error) {
       throw error;
@@ -761,24 +704,20 @@ export class DataStoreService {
     if (!this.supabase.isEnabled()) {
       return [...this.jobs.values()]
         .filter(
-          (job) =>
-            job.contactId === contactId,
+          (job) => job.contactId === contactId,
         )
         .sort((a, b) =>
           b.createdAt.localeCompare(a.createdAt),
         )[0];
     }
 
-    const { data, error } =
-      await this.supabase.client
-        .from('generation_jobs')
-        .select('*')
-        .eq('contact_id', contactId)
-        .order('created_at', {
-          ascending: false,
-        })
-        .limit(1)
-        .maybeSingle<DbGenerationJob>();
+    const { data, error } = await this.supabase.client
+      .from('generation_jobs')
+      .select('*')
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<DbGenerationJob>();
 
     if (error) {
       throw error;
@@ -789,14 +728,11 @@ export class DataStoreService {
       : undefined;
   }
 
-  private toContact(
-    row: DbContact,
-  ): Contact {
+  private toContact(row: DbContact): Contact {
     return {
       id: row.id,
       waId: row.wa_id,
-      profileName:
-        row.profile_name ?? undefined,
+      profileName: row.profile_name ?? undefined,
       state: row.state,
       pendingImagePath:
         row.pending_image_path ?? undefined,
@@ -832,8 +768,7 @@ export class DataStoreService {
       status: row.status,
       provider: row.provider,
       prompt: row.prompt,
-      inputStoragePath:
-        row.input_storage_path,
+      inputStoragePath: row.input_storage_path,
       inputMimeType: row.input_mime_type,
       outputStoragePath:
         row.output_storage_path ?? undefined,
