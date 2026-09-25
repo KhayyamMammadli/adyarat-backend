@@ -3,7 +3,9 @@ export interface WhatsAppTextMessage {
   id: string;
   timestamp: string;
   type: 'text';
-  text: { body: string };
+  text: {
+    body: string;
+  };
 }
 
 export interface WhatsAppImageMessage {
@@ -19,6 +21,33 @@ export interface WhatsAppImageMessage {
   };
 }
 
+export interface WhatsAppAudioMessage {
+  from: string;
+  id: string;
+  timestamp: string;
+  type: 'audio';
+  audio: {
+    id: string;
+    mime_type?: string;
+    sha256?: string;
+    voice?: boolean;
+  };
+}
+
+export interface WhatsAppDocumentMessage {
+  from: string;
+  id: string;
+  timestamp: string;
+  type: 'document';
+  document: {
+    id: string;
+    mime_type?: string;
+    sha256?: string;
+    filename?: string;
+    caption?: string;
+  };
+}
+
 export interface WhatsAppUnknownMessage {
   from: string;
   id: string;
@@ -27,7 +56,12 @@ export interface WhatsAppUnknownMessage {
   [key: string]: unknown;
 }
 
-export type WhatsAppMessage = WhatsAppTextMessage | WhatsAppImageMessage | WhatsAppUnknownMessage;
+export type WhatsAppMessage =
+  | WhatsAppTextMessage
+  | WhatsAppImageMessage
+  | WhatsAppAudioMessage
+  | WhatsAppDocumentMessage
+  | WhatsAppUnknownMessage;
 
 export interface WhatsAppStatus {
   id: string;
@@ -44,10 +78,15 @@ export interface WhatsAppWebhookPayload {
       field?: string;
       value?: {
         messaging_product?: string;
-        metadata?: { display_phone_number?: string; phone_number_id?: string };
+        metadata?: {
+          display_phone_number?: string;
+          phone_number_id?: string;
+        };
         contacts?: Array<{
           wa_id: string;
-          profile?: { name?: string };
+          profile?: {
+            name?: string;
+          };
         }>;
         messages?: WhatsAppMessage[];
         statuses?: WhatsAppStatus[];
