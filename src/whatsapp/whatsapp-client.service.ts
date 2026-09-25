@@ -10,9 +10,7 @@ interface MetaMediaMetadata {
 }
 
 interface MetaMessageResponse {
-  messages?: Array<{
-    id: string;
-  }>;
+  messages?: Array<{ id: string }>;
   error?: unknown;
 }
 
@@ -23,37 +21,142 @@ interface MetaMediaUploadResponse {
 
 @Injectable()
 export class WhatsAppClientService {
-  constructor(
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
-  async sendText(
-    to: string,
-    body: string,
-  ): Promise<string> {
-    const response =
-      await this.graphRequest<MetaMessageResponse>(
-        `${this.requirePhoneNumberId()}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+  async sendText(to: string, body: string): Promise<string> {
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'text',
+          text: {
+            preview_url: false,
+            body,
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to,
-            type: 'text',
-            text: {
-              preview_url: false,
-              body,
-            },
-          }),
-        },
-      );
+        }),
+      },
+    );
 
-    const messageId =
-      response.messages?.[0]?.id;
+    const messageId = response.messages?.[0]?.id;
+
+    if (!messageId) {
+      throw new ExternalServiceError(
+        'Meta did not return a message id',
+        502,
+        response,
+      );
+    }
+
+    return messageId;
+  }
+
+  async sendMainMenu(
+    to: string,
+    profileName?: string,
+  ): Promise<string> {
+    const greeting = profileName
+      ? `Salam, ${profileName}! 👋`
+      : 'Salam! 👋';
+
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'interactive',
+          interactive: {
+            type: 'list',
+            header: {
+              type: 'text',
+              text: 'AdYarat AI',
+            },
+            body: {
+              text: `${greeting}
+Mən AI söhbəti, reklam videosu, səsdən mətnə və sənəd tərcüməsi üçün köməkçiyəm. Aşağıdakı düymədən istədiyiniz xidməti seçin.`,
+            },
+            footer: {
+              text: 'Gemini • ChatGPT • Claude • Runway',
+            },
+            action: {
+              button: 'MENYUNU AÇ',
+              sections: [
+                {
+                  title: 'AI söhbəti',
+                  rows: [
+                    {
+                      id: 'menu_ai',
+                      title: '🤖 Avtomatik AI',
+                      description: 'Uyğun AI avtomatik seçilsin',
+                    },
+                    {
+                      id: 'menu_gemini',
+                      title: 'Gemini',
+                      description: 'Gemini ilə söhbət et',
+                    },
+                    {
+                      id: 'menu_chatgpt',
+                      title: 'ChatGPT',
+                      description: 'ChatGPT ilə söhbət et',
+                    },
+                    {
+                      id: 'menu_claude',
+                      title: 'Claude',
+                      description: 'Claude ilə söhbət et',
+                    },
+                  ],
+                },
+                {
+                  title: 'Yaradıcı alətlər',
+                  rows: [
+                    {
+                      id: 'menu_video',
+                      title: '🎬 Video yarat',
+                      description:
+                        'Məhsul şəklindən reklam videosu',
+                    },
+                    {
+                      id: 'menu_voice',
+                      title: '🎙️ Səsi mətnə çevir',
+                      description:
+                        'WhatsApp səsini yazıya çevir',
+                    },
+                    {
+                      id: 'menu_translate',
+                      title: '📚 Sənədi tərcümə et',
+                      description:
+                        'PDF, DOCX və TXT tərcüməsi',
+                    },
+                    {
+                      id: 'menu_status',
+                      title: '📊 Video statusu',
+                      description:
+                        'Son video sorğusunu yoxla',
+                    },
+                    {
+                      id: 'menu_cancel',
+                      title: '❌ Sorğunu ləğv et',
+                      description:
+                        'Gözləyən video axınını bağla',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    const messageId = response.messages?.[0]?.id;
 
     if (!messageId) {
       throw new ExternalServiceError(
@@ -77,29 +180,25 @@ export class WhatsAppClientService {
       'adyarat-video.mp4',
     );
 
-    const response =
-      await this.graphRequest<MetaMessageResponse>(
-        `${this.requirePhoneNumberId()}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'video',
+          video: {
+            id: mediaId,
+            caption,
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to,
-            type: 'video',
-            video: {
-              id: mediaId,
-              caption,
-            },
-          }),
-        },
-      );
+        }),
+      },
+    );
 
-    const messageId =
-      response.messages?.[0]?.id;
+    const messageId = response.messages?.[0]?.id;
 
     if (!messageId) {
       throw new ExternalServiceError(
@@ -125,30 +224,26 @@ export class WhatsAppClientService {
       filename,
     );
 
-    const response =
-      await this.graphRequest<MetaMessageResponse>(
-        `${this.requirePhoneNumberId()}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'document',
+          document: {
+            id: mediaId,
+            filename,
+            caption,
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to,
-            type: 'document',
-            document: {
-              id: mediaId,
-              filename,
-              caption,
-            },
-          }),
-        },
-      );
+        }),
+      },
+    );
 
-    const messageId =
-      response.messages?.[0]?.id;
+    const messageId = response.messages?.[0]?.id;
 
     if (!messageId) {
       throw new ExternalServiceError(
@@ -161,16 +256,12 @@ export class WhatsAppClientService {
     return messageId;
   }
 
-  async markAsRead(
-    messageId: string,
-  ): Promise<void> {
+  async markAsRead(messageId: string): Promise<void> {
     await this.graphRequest(
       `${this.requirePhoneNumberId()}/messages`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           status: 'read',
