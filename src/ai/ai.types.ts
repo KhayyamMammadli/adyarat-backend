@@ -1,5 +1,11 @@
-export type AiProviderName = 'gemini' | 'openai' | 'claude';
-export type AiRoutingProviderName = 'auto' | AiProviderName;
+export type AiProviderName =
+  | 'gemini'
+  | 'openai'
+  | 'claude';
+
+export type AiRoutingProviderName =
+  | 'auto'
+  | AiProviderName;
 
 export interface AiConversationTurn {
   role: 'user' | 'assistant';
@@ -19,4 +25,20 @@ export interface AiTextResult {
   text: string;
 }
 
-export interface AudioTranscriptionResult extends AiTextResult {}
+export interface AudioTranscriptionResult
+  extends AiTextResult {}
+
+export interface VoiceTranslationResult {
+  provider: AiProviderName;
+  shouldTranslate: boolean;
+  sourceText: string;
+  targetLanguage?: string;
+  translatedText?: string;
+}
+
+export interface SpeechSynthesisResult {
+  provider: 'openai';
+  bytes: Buffer;
+  mimeType: 'audio/mpeg';
+  filename: string;
+}
