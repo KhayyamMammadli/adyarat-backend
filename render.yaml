@@ -6,34 +6,67 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /health
+
     envVars:
       - key: NODE_VERSION
         value: 22
+
       - key: NODE_ENV
         value: production
+
       - key: META_GRAPH_API_VERSION
         value: v25.0
+
       - key: META_ACCESS_TOKEN
         sync: false
+
       - key: META_PHONE_NUMBER_ID
         sync: false
+
       - key: META_APP_SECRET
         sync: false
+
       - key: META_WEBHOOK_VERIFY_TOKEN
         sync: false
-      - key: AI_TEXT_PROVIDER
-        value: none
+
+      - key: AI_DEFAULT_PROVIDER
+        value: auto
+
+      - key: AI_PROVIDER_ORDER
+        value: gemini,openai,claude
+
       - key: GEMINI_API_KEY
         sync: false
+
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
+
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: OPENAI_MODEL
+        value: gpt-5.6-terra
+
+      - key: OPENAI_TRANSCRIBE_MODEL
+        value: gpt-transcribe
+
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-5
+
       - key: VIDEO_PROVIDER
         value: mock
+
       - key: RUNWAYML_API_SECRET
         sync: false
+
       - key: SUPABASE_URL
         sync: false
+
       - key: SUPABASE_SECRET_KEY
         sync: false
+
       - key: SUPABASE_BUCKET
         value: adyarat-media
