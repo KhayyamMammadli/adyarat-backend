@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
-import {
-  AiConversationTurn,
-  AiProviderName,
-} from '../ai/ai.types';
+import { AiConversationTurn, AiProviderName } from '../ai/ai.types';
 import {
   isVideoIntent,
   parseProviderCommand,
@@ -12,10 +9,7 @@ import {
   splitText,
 } from '../ai/ai.utils';
 import { DocumentTranslationService } from '../ai/document-translation.service';
-import {
-  Contact,
-  ConversationMessage,
-} from '../common/domain';
+import { Contact, ConversationMessage } from '../common/domain';
 import { MediaStoreService } from '../media/media-store.service';
 import { DataStoreService } from '../supabase/data-store.service';
 import { WhatsAppClientService } from './whatsapp-client.service';
@@ -41,9 +35,7 @@ const ALLOWED_IMAGE_TYPES = new Set([
 
 @Injectable()
 export class WhatsAppProcessorService {
-  private readonly logger = new Logger(
-    WhatsAppProcessorService.name,
-  );
+  private readonly logger = new Logger(WhatsAppProcessorService.name);
 
   constructor(
     private readonly config: ConfigService,
@@ -54,9 +46,7 @@ export class WhatsAppProcessorService {
     private readonly documents: DocumentTranslationService,
   ) {}
 
-  async process(
-    payload: WhatsAppWebhookPayload,
-  ): Promise<void> {
+  async process(payload: WhatsAppWebhookPayload): Promise<void> {
     for (const status of extractStatuses(payload)) {
       await this.dataStore.updateMessageStatus(
         status.id,
@@ -67,25 +57,21 @@ export class WhatsAppProcessorService {
     for (const envelope of extractMessages(payload)) {
       const { message, profileName } = envelope;
 
-      const contact =
-        await this.dataStore.getOrCreateContact(
-          message.from,
-          profileName,
-        );
+      const contact = await this.dataStore.getOrCreateContact(
+        message.from,
+        profileName,
+      );
 
-      const isNew =
-        await this.dataStore.recordMessage({
-          waMessageId: message.id,
-          contactId: contact.id,
-          direction: 'inbound',
-          type: message.type,
-          content: message,
-          status: 'received',
-        });
+      const isNew = await this.dataStore.recordMessage({
+        waMessageId: message.id,
+        contactId: contact.id,
+        direction: 'inbound',
+        type: message.type,
+        content: message,
+        status: 'received',
+      });
 
-      if (!isNew) {
-        continue;
-      }
+      if (!isNew) continue;
 
       await this.whatsapp
         .markAsRead(message.id)
@@ -95,10 +81,7 @@ export class WhatsAppProcessorService {
           );
         });
 
-      await this.routeMessage(
-        contact,
-        message,
-      );
+      await this.routeMessage(contact, message);
     }
   }
 
@@ -144,9 +127,7 @@ export class WhatsAppProcessorService {
     contact: Contact,
     message: WhatsAppImageMessage,
   ): Promise<void> {
-    if (
-      await this.dataStore.hasActiveJob(contact.id)
-    ) {
+    if (await this.dataStore.hasActiveJob(contact.id)) {
       await this.reply(
         contact,
         'Hazırda əvvəlki videonuz hazırlanır. Nəticəni gözləyin.',
@@ -155,14 +136,11 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    const media =
-      await this.whatsapp.downloadMedia(
-        message.image.id,
-      );
+    const media = await this.whatsapp.downloadMedia(
+      message.image.id,
+    );
 
-    if (
-      !ALLOWED_IMAGE_TYPES.has(media.mimeType)
-    ) {
+    if (!ALLOWED_IMAGE_TYPES.has(media.mimeType)) {
       await this.reply(
         contact,
         'Şəkil JPG, PNG və ya WEBP formatında olmalıdır.',
@@ -172,9 +150,7 @@ export class WhatsAppProcessorService {
     }
 
     const maxBytes =
-      this.config.get<number>(
-        'MAX_IMAGE_BYTES',
-      ) ??
+      this.config.get<number>('MAX_IMAGE_BYTES') ??
       5 * 1024 * 1024;
 
     if (
@@ -183,7 +159,9 @@ export class WhatsAppProcessorService {
     ) {
       await this.reply(
         contact,
-        `Şəkil maksimum ${Math.floor(maxBytes / 1024 / 1024)} MB ola bilər.`,
+        `Şəkil maksimum ${Math.floor(
+          maxBytes / 1024 / 1024,
+        )} MB ola bilər.`,
       );
 
       return;
@@ -199,14 +177,11 @@ export class WhatsAppProcessorService {
       media.mimeType,
     );
 
-    await this.dataStore.updateContact(
-      contact.id,
-      {
-        state: 'awaiting_prompt',
-        pendingImagePath: path,
-        pendingImageMime: media.mimeType,
-      },
-    );
+    await this.dataStore.updateContact(contact.id, {
+      state: 'awaiting_prompt',
+      pendingImagePath: path,
+      pendingImageMime: media.mimeType,
+    });
 
     await this.reply(
       contact,
@@ -225,11 +200,8 @@ export class WhatsAppProcessorService {
     contact: Contact,
     message: WhatsAppTextMessage,
   ): Promise<void> {
-    const rawText =
-      message.text.body.trim();
-
-    const command =
-      normalizeCommand(rawText);
+    const rawText = message.text.body.trim();
+    const command = normalizeCommand(rawText);
 
     if (
       [
@@ -241,6 +213,9 @@ export class WhatsAppProcessorService {
         'start',
         'başla',
         'basla',
+        '/help',
+        '/menu',
+        '/start',
       ].includes(command)
     ) {
       await this.reply(
@@ -256,10 +231,10 @@ export class WhatsAppProcessorService {
         'status',
         'vəziyyət',
         'veziyyet',
+        '/status',
       ].includes(command)
     ) {
       await this.sendStatus(contact);
-
       return;
     }
 
@@ -268,9 +243,75 @@ export class WhatsAppProcessorService {
         'ləğv',
         'legv',
         'cancel',
+        '/cancel',
       ].includes(command)
     ) {
       await this.cancelVideoFlow(contact);
+      return;
+    }
+
+    if (command === '/ai') {
+      await this.reply(
+        contact,
+        '🤖 AI söhbəti hazırdır. Sualınızı adi mətn kimi yazın. Sistem uyğun provayderi avtomatik seçəcək.',
+      );
+
+      return;
+    }
+
+    if (command === '/video') {
+      await this.reply(
+        contact,
+        contact.pendingImagePath
+          ? '🎬 Məhsul şəkliniz hazırdır. İndi videoda nə baş verməsini istədiyinizi yazın.'
+          : '🎬 Video hazırlamaq üçün əvvəlcə məhsul şəklini göndərin. Sonra videoda nə baş verməsini yazın.',
+      );
+
+      return;
+    }
+
+    if (command === '/voice') {
+      await this.reply(
+        contact,
+        '🎙️ Səs mesajını bu söhbətə göndərin. Onu avtomatik olaraq mətnə çevirəcəyəm.',
+      );
+
+      return;
+    }
+
+    if (command === '/translate') {
+      await this.reply(
+        contact,
+        '📚 PDF, DOCX və ya TXT sənədini göndərin. Tərcümə dilini sənədin açıqlamasında yaza bilərsiniz.',
+      );
+
+      return;
+    }
+
+    const parsed = parseProviderCommand(rawText);
+
+    if (parsed.provider && !parsed.text) {
+      const label = providerLabel(parsed.provider);
+
+      await this.reply(
+        contact,
+        `🤖 ${label} ilə danışmaq üçün komandanın yanında sualınızı yazın.\nMəsələn: /${
+          parsed.provider === 'openai'
+            ? 'chatgpt'
+            : parsed.provider
+        } Bakı haqqında qısa məlumat ver`,
+      );
+
+      return;
+    }
+
+    if (parsed.provider) {
+      await this.handleAiChat(
+        contact,
+        message.id,
+        parsed.text,
+        parsed.provider,
+      );
 
       return;
     }
@@ -279,21 +320,11 @@ export class WhatsAppProcessorService {
       contact.state === 'awaiting_prompt' &&
       contact.pendingImagePath
     ) {
-      await this.createVideoJob(
-        contact,
-        rawText,
-      );
-
+      await this.createVideoJob(contact, rawText);
       return;
     }
 
-    const parsed =
-      parseProviderCommand(rawText);
-
-    if (
-      !parsed.provider &&
-      isVideoIntent(parsed.text)
-    ) {
+    if (isVideoIntent(parsed.text)) {
       await this.reply(
         contact,
         '🎬 Video hazırlamaq üçün əvvəlcə məhsul şəklini göndərin. Sonra təsviri yazacaqsınız.',
@@ -318,21 +349,19 @@ export class WhatsAppProcessorService {
   ): Promise<void> {
     try {
       const configured =
-        this.config.get<string>(
-          'AI_DEFAULT_PROVIDER',
-        ) ?? 'auto';
+        this.config.get<string>('AI_DEFAULT_PROVIDER') ??
+        'auto';
 
       const provider =
         forcedProvider ??
         (configured === 'auto'
           ? undefined
-          : configured as AiProviderName);
+          : (configured as AiProviderName));
 
-      const history =
-        await this.conversationHistory(
-          contact.id,
-          currentMessageId,
-        );
+      const history = await this.conversationHistory(
+        contact.id,
+        currentMessageId,
+      );
 
       const result = await this.ai.answer({
         text,
@@ -369,15 +398,12 @@ export class WhatsAppProcessorService {
         '🎙️ Səs alındı. Mətnə çevirirəm...',
       );
 
-      const media =
-        await this.whatsapp.downloadMedia(
-          message.audio.id,
-        );
+      const media = await this.whatsapp.downloadMedia(
+        message.audio.id,
+      );
 
       const maxBytes =
-        this.config.get<number>(
-          'MAX_AUDIO_BYTES',
-        ) ??
+        this.config.get<number>('MAX_AUDIO_BYTES') ??
         25 * 1024 * 1024;
 
       if (
@@ -385,19 +411,25 @@ export class WhatsAppProcessorService {
         media.bytes.length > maxBytes
       ) {
         throw new Error(
-          `Səs maksimum ${Math.floor(maxBytes / 1024 / 1024)} MB ola bilər.`,
+          `Səs maksimum ${Math.floor(
+            maxBytes / 1024 / 1024,
+          )} MB ola bilər.`,
         );
       }
 
       const result = await this.ai.transcribe(
         media.bytes,
         media.mimeType,
-        `whatsapp-audio.${this.audioExtension(media.mimeType)}`,
+        `whatsapp-audio.${this.audioExtension(
+          media.mimeType,
+        )}`,
       );
 
       await this.reply(
         contact,
-        `📝 Səsin mətni (${providerLabel(result.provider)}):\n\n${result.text}`,
+        `📝 Səsin mətni (${providerLabel(
+          result.provider,
+        )}):\n\n${result.text}`,
         {
           provider: result.provider,
           task: 'transcription',
@@ -405,12 +437,16 @@ export class WhatsAppProcessorService {
       );
     } catch (error) {
       this.logger.warn(
-        `Audio transcription failed: ${this.errorMessage(error)}`,
+        `Audio transcription failed: ${this.errorMessage(
+          error,
+        )}`,
       );
 
       await this.reply(
         contact,
-        `Səs mətnə çevrilmədi: ${this.publicError(error)}`,
+        `Səs mətnə çevrilmədi: ${this.publicError(
+          error,
+        )}`,
       );
     }
   }
@@ -421,26 +457,23 @@ export class WhatsAppProcessorService {
   ): Promise<void> {
     try {
       const filename =
-        message.document.filename ??
-        'document';
+        message.document.filename ?? 'document';
 
       await this.reply(
         contact,
         '📚 Sənəd alındı. Tərcümə hazırlanır...',
       );
 
-      const media =
-        await this.whatsapp.downloadMedia(
-          message.document.id,
-        );
+      const media = await this.whatsapp.downloadMedia(
+        message.document.id,
+      );
 
-      const translated =
-        await this.documents.translate(
-          media.bytes,
-          media.mimeType,
-          filename,
-          message.document.caption,
-        );
+      const translated = await this.documents.translate(
+        media.bytes,
+        media.mimeType,
+        filename,
+        message.document.caption,
+      );
 
       const messageId =
         await this.whatsapp.sendDocument(
@@ -448,12 +481,9 @@ export class WhatsAppProcessorService {
           translated.bytes,
           translated.mimeType,
           translated.filename,
-          [
-            'Tərcümə hazırdır ✅',
-            `AI: ${translated.providers
-              .map(providerLabel)
-              .join(', ')}`,
-          ].join('\n'),
+          `Tərcümə hazırdır ✅\nAI: ${translated.providers
+            .map(providerLabel)
+            .join(', ')}`,
         );
 
       await this.dataStore.recordMessage({
@@ -463,21 +493,23 @@ export class WhatsAppProcessorService {
         type: 'document',
         content: {
           filename: translated.filename,
-          providers:
-            translated.providers,
-          sourceCharacters:
-            translated.sourceCharacters,
+          providers: translated.providers,
+          sourceCharacters: translated.sourceCharacters,
         },
         status: 'sent',
       });
     } catch (error) {
       this.logger.warn(
-        `Document translation failed: ${this.errorMessage(error)}`,
+        `Document translation failed: ${this.errorMessage(
+          error,
+        )}`,
       );
 
       await this.reply(
         contact,
-        `Sənəd tərcümə edilmədi: ${this.publicError(error)}`,
+        `Sənəd tərcümə edilmədi: ${this.publicError(
+          error,
+        )}`,
       );
     }
   }
@@ -487,9 +519,8 @@ export class WhatsAppProcessorService {
     rawText: string,
   ): Promise<void> {
     const maxLength =
-      this.config.get<number>(
-        'MAX_PROMPT_LENGTH',
-      ) ?? 1000;
+      this.config.get<number>('MAX_PROMPT_LENGTH') ??
+      1000;
 
     if (rawText.length < 5) {
       await this.reply(
@@ -509,9 +540,7 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (
-      await this.dataStore.hasActiveJob(contact.id)
-    ) {
+    if (await this.dataStore.hasActiveJob(contact.id)) {
       await this.reply(
         contact,
         'Hazırda əvvəlki videonuz hazırlanır. Nəticəni gözləyin.',
@@ -535,39 +564,28 @@ export class WhatsAppProcessorService {
     await this.dataStore.createJob({
       contactId: contact.id,
       provider:
-        this.config.get<string>(
-          'VIDEO_PROVIDER',
-        ) ?? 'mock',
+        this.config.get<string>('VIDEO_PROVIDER') ??
+        'mock',
       prompt,
-      inputStoragePath:
-        contact.pendingImagePath,
+      inputStoragePath: contact.pendingImagePath,
       inputMimeType:
-        contact.pendingImageMime ??
-        'image/jpeg',
+        contact.pendingImageMime ?? 'image/jpeg',
     });
 
-    await this.dataStore.updateContact(
-      contact.id,
-      {
-        state: 'processing',
-      },
-    );
+    await this.dataStore.updateContact(contact.id, {
+      state: 'processing',
+    });
 
     await this.reply(
       contact,
-      [
-        'Sorğunuz qəbul edildi 🎬',
-        'Video hazırlanır. Hazır olduqda bu söhbətə göndərəcəyəm.',
-      ].join('\n'),
+      'Sorğunuz qəbul edildi 🎬\nVideo hazırlanır. Hazır olduqda bu söhbətə göndərəcəyəm.',
     );
   }
 
   private async cancelVideoFlow(
     contact: Contact,
   ): Promise<void> {
-    if (
-      await this.dataStore.hasActiveJob(contact.id)
-    ) {
+    if (await this.dataStore.hasActiveJob(contact.id)) {
       await this.reply(
         contact,
         'Video artıq hazırlanır və bu mərhələdə dayandırıla bilmir.',
@@ -576,14 +594,11 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    await this.dataStore.updateContact(
-      contact.id,
-      {
-        state: 'new',
-        pendingImagePath: undefined,
-        pendingImageMime: undefined,
-      },
-    );
+    await this.dataStore.updateContact(contact.id, {
+      state: 'new',
+      pendingImagePath: undefined,
+      pendingImageMime: undefined,
+    });
 
     await this.reply(
       contact,
@@ -594,10 +609,9 @@ export class WhatsAppProcessorService {
   private async sendStatus(
     contact: Contact,
   ): Promise<void> {
-    const job =
-      await this.dataStore.getLatestJob(
-        contact.id,
-      );
+    const job = await this.dataStore.getLatestJob(
+      contact.id,
+    );
 
     if (!job) {
       await this.reply(
@@ -617,7 +631,9 @@ export class WhatsAppProcessorService {
 
     await this.reply(
       contact,
-      `Son video sorğunuz: ${labels[job.status] ?? job.status}`,
+      `Son video sorğunuz: ${
+        labels[job.status] ?? job.status
+      }`,
     );
   }
 
@@ -634,17 +650,14 @@ export class WhatsAppProcessorService {
     return messages
       .filter(
         (message) =>
-          message.waMessageId !==
-            currentMessageId &&
+          message.waMessageId !== currentMessageId &&
           message.type === 'text',
       )
       .map((message) =>
         this.toConversationTurn(message),
       )
       .filter(
-        (
-          turn,
-        ): turn is AiConversationTurn =>
+        (turn): turn is AiConversationTurn =>
           Boolean(turn),
       )
       .slice(-8);
@@ -660,18 +673,14 @@ export class WhatsAppProcessorService {
       return undefined;
     }
 
-    const content =
-      message.content as {
-        text?: string | {
-          body?: string;
-        };
-      };
+    const content = message.content as {
+      text?: string | { body?: string };
+    };
 
     const text =
       typeof content.text === 'string'
         ? content.text
-        : typeof content.text?.body ===
-            'string'
+        : typeof content.text?.body === 'string'
           ? content.text.body
           : undefined;
 
@@ -700,12 +709,7 @@ export class WhatsAppProcessorService {
       4000,
     );
 
-    for (
-      const part of splitText(
-        text,
-        maxLength,
-      )
-    ) {
+    for (const part of splitText(text, maxLength)) {
       const messageId =
         await this.whatsapp.sendText(
           contact.waId,
@@ -740,24 +744,26 @@ export class WhatsAppProcessorService {
       '🎙️ Səs — səs mesajı göndərin, mətnə çevirim',
       '📚 Tərcümə — PDF/DOCX/TXT göndərin; caption-da dili yazın',
       '',
+      'Komandalar:',
+      '/ai — avtomatik AI seçimi',
       '/gemini sualınız',
       '/chatgpt sualınız',
       '/claude sualınız',
+      '/video — video təlimatı',
+      '/voice — səsdən mətnə',
+      '/translate — sənəd tərcüməsi',
+      '/status — video vəziyyəti',
+      '/cancel — video sorğusunu ləğv et',
       '',
-      'Əmrlər: STATUS, LƏĞV, KÖMƏK',
+      'Menyunu yenidən görmək üçün /help yazın.',
     ].join('\n');
   }
 
   private imageExtension(
     mimeType: string,
   ): string {
-    if (mimeType === 'image/png') {
-      return 'png';
-    }
-
-    if (mimeType === 'image/webp') {
-      return 'webp';
-    }
+    if (mimeType === 'image/png') return 'png';
+    if (mimeType === 'image/webp') return 'webp';
 
     return 'jpg';
   }
@@ -765,39 +771,23 @@ export class WhatsAppProcessorService {
   private audioExtension(
     mimeType: string,
   ): string {
-    if (mimeType.includes('mpeg')) {
-      return 'mp3';
-    }
-
-    if (mimeType.includes('mp4')) {
-      return 'm4a';
-    }
-
-    if (mimeType.includes('wav')) {
-      return 'wav';
-    }
-
-    if (mimeType.includes('webm')) {
-      return 'webm';
-    }
+    if (mimeType.includes('mpeg')) return 'mp3';
+    if (mimeType.includes('mp4')) return 'm4a';
+    if (mimeType.includes('wav')) return 'wav';
+    if (mimeType.includes('webm')) return 'webm';
 
     return 'ogg';
   }
 
-  private publicError(
-    error: unknown,
-  ): string {
-    const message =
-      this.errorMessage(error);
+  private publicError(error: unknown): string {
+    const message = this.errorMessage(error);
 
     return message.length <= 500
       ? message
       : 'Texniki xəta baş verdi. Sonra yenidən yoxlayın.';
   }
 
-  private errorMessage(
-    error: unknown,
-  ): string {
+  private errorMessage(error: unknown): string {
     return error instanceof Error
       ? error.message
       : String(error);
