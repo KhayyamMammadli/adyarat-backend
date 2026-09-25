@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AiModule } from './ai/ai.module';
 import { AppController } from './app.controller';
 import { validateEnvironment } from './common/environment';
 import { MediaModule } from './media/media.module';
@@ -14,6 +15,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
       cache: true,
       validate: validateEnvironment,
     }),
+    AiModule,
     SupabaseModule,
     MediaModule,
     WhatsAppModule,
