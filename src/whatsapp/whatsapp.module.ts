@@ -8,13 +8,21 @@ import { WebhookSecurityService } from './webhook-security.service';
 
 @Module({
   imports: [AiModule],
-  controllers: [WhatsAppController],
+
+  controllers: [
+    WhatsAppController,
+  ],
+
   providers: [
     WhatsAppClientService,
     WhatsAppProcessorService,
     WhatsAppWebhookWorker,
     WebhookSecurityService,
   ],
-  exports: [WhatsAppClientService, WebhookSecurityService],
+
+  exports: [
+    WhatsAppClientService,
+    WebhookSecurityService,
+  ],
 })
 export class WhatsAppModule {}
