@@ -22,6 +22,19 @@ test('parses explicit AI provider commands', () => {
       text: 'analiz et',
     },
   );
+
+  assert.deepEqual(parseProviderCommand('/gemini'), {
+    provider: 'gemini',
+    text: '',
+  });
+
+  assert.deepEqual(
+    parseProviderCommand('/chatgpt   '),
+    {
+      provider: 'openai',
+      text: '',
+    },
+  );
 });
 
 test('routes only explicit video requests', () => {
@@ -37,22 +50,15 @@ test('routes only explicit video requests', () => {
 });
 
 test('splits long WhatsApp replies', () => {
-  const input =
-    'bir iki üç dörd beş altı';
-
-  const output =
-    splitText(input, 10);
+  const input = 'bir iki üç dörd beş altı';
+  const output = splitText(input, 10);
 
   assert.ok(
-    output.every(
-      (part) => part.length <= 10,
-    ),
+    output.every((part) => part.length <= 10),
   );
 
   assert.equal(
-    output
-      .join(' ')
-      .replace(/\s+/g, ' '),
+    output.join(' ').replace(/\s+/g, ' '),
     input,
   );
 });
