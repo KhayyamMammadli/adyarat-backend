@@ -1,8 +1,16 @@
+
 import { Module } from '@nestjs/common';
-import { PromptEnhancerService } from './prompt-enhancer.service';
+import { AiOrchestratorService } from './ai-orchestrator.service';
+import { DocumentTranslationService } from './document-translation.service';
 
 @Module({
-  providers: [PromptEnhancerService],
-  exports: [PromptEnhancerService],
+  providers: [
+    AiOrchestratorService,
+    DocumentTranslationService,
+  ],
+  exports: [
+    AiOrchestratorService,
+    DocumentTranslationService,
+  ],
 })
 export class AiModule {}
