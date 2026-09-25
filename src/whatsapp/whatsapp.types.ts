@@ -1,5 +1,6 @@
 export interface WhatsAppTextMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: 'text';
@@ -8,6 +9,7 @@ export interface WhatsAppTextMessage {
 
 export interface WhatsAppImageMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: 'image';
@@ -21,6 +23,7 @@ export interface WhatsAppImageMessage {
 
 export interface WhatsAppAudioMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: 'audio';
@@ -34,6 +37,7 @@ export interface WhatsAppAudioMessage {
 
 export interface WhatsAppDocumentMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: 'document';
@@ -48,6 +52,7 @@ export interface WhatsAppDocumentMessage {
 
 export interface WhatsAppInteractiveMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: 'interactive';
@@ -67,6 +72,7 @@ export interface WhatsAppInteractiveMessage {
 
 export interface WhatsAppUnknownMessage {
   from: string;
+  from_user_id?: string;
   id: string;
   timestamp: string;
   type: string;
@@ -101,9 +107,11 @@ export interface WhatsAppWebhookPayload {
           phone_number_id?: string;
         };
         contacts?: Array<{
-          wa_id: string;
+          wa_id?: string;
+          user_id?: string;
           profile?: {
             name?: string;
+            username?: string;
           };
         }>;
         messages?: WhatsAppMessage[];
