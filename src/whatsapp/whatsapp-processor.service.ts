@@ -237,6 +237,8 @@ export class WhatsAppProcessorService {
         'help',
         'menu',
         'menyu',
+        'menyunu aç',
+        '🚀 menyunu aç',
         'start',
         'başla',
         'basla',
