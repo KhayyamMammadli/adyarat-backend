@@ -3,6 +3,7 @@ export class ExternalServiceError extends Error {
     message: string,
     readonly status?: number,
     readonly details?: unknown,
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ExternalServiceError';
