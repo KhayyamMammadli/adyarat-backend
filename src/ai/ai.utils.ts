@@ -15,7 +15,7 @@ export function parseProviderCommand(text: string): {
 } {
   const match = text
     .trim()
-    .match(/^\/(gemini|chatgpt|openai|claude)\s+([\s\S]+)$/i);
+    .match(/^\/(gemini|chatgpt|openai|claude)(?:\s+([\s\S]+))?$/i);
 
   if (!match) return { text: text.trim() };
 
@@ -26,7 +26,7 @@ export function parseProviderCommand(text: string): {
 
   return {
     provider: provider as AiProviderName,
-    text: match[2].trim(),
+    text: (match[2] ?? '').trim(),
   };
 }
 
