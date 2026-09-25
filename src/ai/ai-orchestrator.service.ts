@@ -6,6 +6,8 @@ import {
   AiTextRequest,
   AiTextResult,
   AudioTranscriptionResult,
+  SpeechSynthesisResult,
+  VoiceTranslationResult,
 } from './ai.types';
 
 class AiProviderError extends Error {
@@ -19,11 +21,17 @@ class AiProviderError extends Error {
 
 @Injectable()
 export class AiOrchestratorService {
-  private readonly logger = new Logger(AiOrchestratorService.name);
+  private readonly logger = new Logger(
+    AiOrchestratorService.name,
+  );
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+  ) {}
 
-  async answer(request: AiTextRequest): Promise<AiTextResult> {
+  async answer(
+    request: AiTextRequest,
+  ): Promise<AiTextResult> {
     const providers = request.provider
       ? [request.provider]
       : this.providerOrder();
@@ -53,7 +61,10 @@ export class AiOrchestratorService {
         const message = this.errorMessage(error);
 
         errors.push(`${provider}: ${message}`);
-        this.logger.warn(`${provider} request failed: ${message}`);
+
+        this.logger.warn(
+          `${provider} request failed: ${message}`,
+        );
       }
     }
 
@@ -64,7 +75,9 @@ export class AiOrchestratorService {
     );
   }
 
-  async enhanceVideoPrompt(prompt: string): Promise<string> {
+  async enhanceVideoPrompt(
+    prompt: string,
+  ): Promise<string> {
     try {
       const result = await this.answer({
         text: prompt,
@@ -92,7 +105,10 @@ export class AiOrchestratorService {
       text,
       provider,
       maxOutputTokens: 8000,
-      systemInstruction: `Translate this document segment according to: ${instruction}. Preserve headings, paragraphs, lists, names, numbers and meaning. Return only the translation.`,
+      systemInstruction:
+        `Translate this document segment according to: ${instruction}. ` +
+        'Preserve headings, paragraphs, lists, names, numbers and meaning. ' +
+        'Return only the translation.',
     });
   }
 
@@ -116,7 +132,9 @@ export class AiOrchestratorService {
           ),
         };
       } catch (error) {
-        errors.push(`openai: ${this.errorMessage(error)}`);
+        errors.push(
+          `openai: ${this.errorMessage(error)}`,
+        );
       }
     }
 
@@ -125,11 +143,16 @@ export class AiOrchestratorService {
         return {
           provider: 'gemini',
           text: await this.withRetry(() =>
-            this.transcribeWithGemini(bytes, mimeType),
+            this.transcribeWithGemini(
+              bytes,
+              mimeType,
+            ),
           ),
         };
       } catch (error) {
-        errors.push(`gemini: ${this.errorMessage(error)}`);
+        errors.push(
+          `gemini: ${this.errorMessage(error)}`,
+        );
       }
     }
 
@@ -138,6 +161,110 @@ export class AiOrchestratorService {
         ? `Səs mətnə çevrilmədi. ${errors.join(' | ')}`
         : 'Səs üçün OPENAI_API_KEY və ya GEMINI_API_KEY lazımdır.',
     );
+  }
+
+  async translateVoiceCommand(
+    transcript: string,
+  ): Promise<VoiceTranslationResult> {
+    const result = await this.answer({
+      text: transcript,
+      maxOutputTokens: 2500,
+      systemInstruction: [
+        'Analyze a voice-message transcript.',
+        'The speaker may first say the content and then ask to translate this audio into a target language.',
+        'If there is a translation request, remove that instruction from sourceText and translate only the intended content.',
+        'Support target languages written in any language, including Azerbaijani, Turkish, English, German, Russian and others.',
+        'Return ONLY valid JSON with this exact shape:',
+        '{"shouldTranslate":true,"sourceText":"...","targetLanguage":"...","translatedText":"..."}',
+        'If there is no translation request, return:',
+        '{"shouldTranslate":false,"sourceText":"full transcript","targetLanguage":"","translatedText":""}',
+      ].join(' '),
+    });
+
+    const parsed = this.parseVoiceTranslation(
+      result.text,
+      transcript,
+    );
+
+    return {
+      provider: result.provider,
+      ...parsed,
+    };
+  }
+
+  async synthesizeSpeech(
+    text: string,
+    targetLanguage: string,
+  ): Promise<SpeechSynthesisResult> {
+    if (text.length > 4096) {
+      throw new Error(
+        'Səsə çevriləcək tərcümə maksimum 4096 simvol ola bilər.',
+      );
+    }
+
+    const response = await fetch(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        method: 'POST',
+        headers: {
+          Authorization:
+            `Bearer ${this.requireConfig('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model:
+            this.config.get<string>(
+              'OPENAI_TTS_MODEL',
+            ) ?? 'gpt-4o-mini-tts',
+          voice:
+            this.config.get<string>(
+              'OPENAI_TTS_VOICE',
+            ) ?? 'marin',
+          input: text,
+          instructions:
+            `Speak naturally and clearly in ${targetLanguage}. ` +
+            'Preserve the meaning and use native pronunciation.',
+          response_format: 'mp3',
+        }),
+        signal: AbortSignal.timeout(
+          this.requestTimeout(),
+        ),
+      },
+    );
+
+    if (!response.ok) {
+      const raw = await response.text();
+      let message = raw;
+
+      try {
+        const body = JSON.parse(raw) as {
+          error?: {
+            message?: string;
+          };
+        };
+
+        message =
+          body.error?.message ?? raw;
+      } catch {
+        // Cavab JSON olmadıqda xam mətni saxlayırıq.
+      }
+
+      throw new AiProviderError(
+        message ||
+          `OpenAI speech generation failed (${response.status})`,
+        response.status,
+      );
+    }
+
+    return {
+      provider: 'openai',
+      bytes: Buffer.from(
+        await response.arrayBuffer(),
+      ),
+      mimeType: 'audio/mpeg',
+      filename:
+        'adyarat-translated-speech.mp3',
+    };
   }
 
   private callProvider(
@@ -159,33 +286,41 @@ export class AiOrchestratorService {
     request: AiTextRequest,
   ): Promise<string> {
     const models = [
-      this.config.get<string>('GEMINI_MODEL') ??
-        'gemini-3.8-flash',
-      this.config.get<string>('GEMINI_FALLBACK_MODEL') ??
-        'gemini-3.5-flash-lite',
+      this.config.get<string>(
+        'GEMINI_MODEL',
+      ) ?? 'gemini-3.8-flash',
+      this.config.get<string>(
+        'GEMINI_FALLBACK_MODEL',
+      ) ?? 'gemini-3.5-flash-lite',
     ].filter(
-      (model, index, list) => list.indexOf(model) === index,
+      (model, index, list) =>
+        list.indexOf(model) === index,
     );
 
     const client = new GoogleGenAI({
-      apiKey: this.requireConfig('GEMINI_API_KEY'),
+      apiKey: this.requireConfig(
+        'GEMINI_API_KEY',
+      ),
     });
 
     let lastError: unknown;
 
     for (const model of models) {
       try {
-        const response = await client.models.generateContent({
-          model,
-          contents: this.conversationText(request),
-          config: {
-            systemInstruction:
-              request.systemInstruction ??
-              this.defaultSystemInstruction(),
-            maxOutputTokens:
-              request.maxOutputTokens ?? 1400,
-          },
-        });
+        const response =
+          await client.models.generateContent({
+            model,
+            contents:
+              this.conversationText(request),
+            config: {
+              systemInstruction:
+                request.systemInstruction ??
+                this.defaultSystemInstruction(),
+              maxOutputTokens:
+                request.maxOutputTokens ??
+                1400,
+            },
+          });
 
         return response.text ?? '';
       } catch (error) {
@@ -197,7 +332,10 @@ export class AiOrchestratorService {
       }
     }
 
-    throw lastError ?? new Error('Gemini cavab vermədi');
+    throw (
+      lastError ??
+      new Error('Gemini cavab vermədi')
+    );
   }
 
   private async callOpenAi(
@@ -208,21 +346,24 @@ export class AiOrchestratorService {
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.requireConfig(
-            'OPENAI_API_KEY',
-          )}`,
-          'Content-Type': 'application/json',
+          Authorization:
+            `Bearer ${this.requireConfig('OPENAI_API_KEY')}`,
+          'Content-Type':
+            'application/json',
         },
         body: JSON.stringify({
           model:
-            this.config.get<string>('OPENAI_MODEL') ??
-            'gpt-5.6-terra',
+            this.config.get<string>(
+              'OPENAI_MODEL',
+            ) ?? 'gpt-5.6-terra',
           instructions:
             request.systemInstruction ??
             this.defaultSystemInstruction(),
-          input: this.conversationText(request),
+          input:
+            this.conversationText(request),
           max_output_tokens:
-            request.maxOutputTokens ?? 1400,
+            request.maxOutputTokens ??
+            1400,
         }),
         signal: AbortSignal.timeout(
           this.requestTimeout(),
@@ -230,18 +371,19 @@ export class AiOrchestratorService {
       },
     );
 
-    const body = (await response.json()) as {
-      error?: {
-        message?: string;
-      };
-      output_text?: string;
-      output?: Array<{
-        content?: Array<{
-          type?: string;
-          text?: string;
+    const body =
+      (await response.json()) as {
+        error?: {
+          message?: string;
+        };
+        output_text?: string;
+        output?: Array<{
+          content?: Array<{
+            type?: string;
+            text?: string;
+          }>;
         }>;
-      }>;
-    };
+      };
 
     if (!response.ok) {
       throw new AiProviderError(
@@ -254,9 +396,16 @@ export class AiOrchestratorService {
     return (
       body.output_text ??
       (body.output ?? [])
-        .flatMap((item) => item.content ?? [])
-        .filter((item) => item.type === 'output_text')
-        .map((item) => item.text ?? '')
+        .flatMap(
+          (item) => item.content ?? [],
+        )
+        .filter(
+          (item) =>
+            item.type === 'output_text',
+        )
+        .map(
+          (item) => item.text ?? '',
+        )
         .join('\n')
     );
   }
@@ -269,25 +418,31 @@ export class AiOrchestratorService {
       {
         method: 'POST',
         headers: {
-          'x-api-key': this.requireConfig(
-            'ANTHROPIC_API_KEY',
-          ),
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
+          'x-api-key':
+            this.requireConfig(
+              'ANTHROPIC_API_KEY',
+            ),
+          'anthropic-version':
+            '2023-06-01',
+          'Content-Type':
+            'application/json',
         },
         body: JSON.stringify({
           model:
-            this.config.get<string>('CLAUDE_MODEL') ??
-            'claude-sonnet-5',
+            this.config.get<string>(
+              'CLAUDE_MODEL',
+            ) ?? 'claude-sonnet-5',
           max_tokens:
-            request.maxOutputTokens ?? 1400,
+            request.maxOutputTokens ??
+            1400,
           system:
             request.systemInstruction ??
             this.defaultSystemInstruction(),
           messages: [
             {
               role: 'user',
-              content: this.conversationText(request),
+              content:
+                this.conversationText(request),
             },
           ],
         }),
@@ -297,15 +452,16 @@ export class AiOrchestratorService {
       },
     );
 
-    const body = (await response.json()) as {
-      error?: {
-        message?: string;
+    const body =
+      (await response.json()) as {
+        error?: {
+          message?: string;
+        };
+        content?: Array<{
+          type?: string;
+          text?: string;
+        }>;
       };
-      content?: Array<{
-        type?: string;
-        text?: string;
-      }>;
-    };
 
     if (!response.ok) {
       throw new AiProviderError(
@@ -316,8 +472,12 @@ export class AiOrchestratorService {
     }
 
     return (body.content ?? [])
-      .filter((item) => item.type === 'text')
-      .map((item) => item.text ?? '')
+      .filter(
+        (item) => item.type === 'text',
+      )
+      .map(
+        (item) => item.text ?? '',
+      )
       .join('\n');
   }
 
@@ -332,7 +492,9 @@ export class AiOrchestratorService {
       'file',
       new Blob(
         [Uint8Array.from(bytes)],
-        { type: mimeType },
+        {
+          type: mimeType,
+        },
       ),
       filename,
     );
@@ -349,9 +511,8 @@ export class AiOrchestratorService {
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.requireConfig(
-            'OPENAI_API_KEY',
-          )}`,
+          Authorization:
+            `Bearer ${this.requireConfig('OPENAI_API_KEY')}`,
         },
         body: form,
         signal: AbortSignal.timeout(
@@ -360,12 +521,13 @@ export class AiOrchestratorService {
       },
     );
 
-    const body = (await response.json()) as {
-      text?: string;
-      error?: {
-        message?: string;
+    const body =
+      (await response.json()) as {
+        text?: string;
+        error?: {
+          message?: string;
+        };
       };
-    };
 
     if (!response.ok) {
       throw new AiProviderError(
@@ -376,7 +538,9 @@ export class AiOrchestratorService {
     }
 
     if (!body.text) {
-      throw new Error('Transkripsiya boş qaytarıldı');
+      throw new Error(
+        'Transkripsiya boş qaytarıldı',
+      );
     }
 
     return body.text.trim();
@@ -387,30 +551,36 @@ export class AiOrchestratorService {
     mimeType: string,
   ): Promise<string> {
     const client = new GoogleGenAI({
-      apiKey: this.requireConfig('GEMINI_API_KEY'),
+      apiKey: this.requireConfig(
+        'GEMINI_API_KEY',
+      ),
     });
 
-    const response = await client.models.generateContent({
-      model:
-        this.config.get<string>('GEMINI_MODEL') ??
-        'gemini-3.8-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: 'Səs yazısını olduğu dildə dəqiq mətnə çevir. Yalnız mətni qaytar.',
-            },
-            {
-              inlineData: {
-                mimeType,
-                data: bytes.toString('base64'),
+    const response =
+      await client.models.generateContent({
+        model:
+          this.config.get<string>(
+            'GEMINI_MODEL',
+          ) ?? 'gemini-3.8-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text:
+                  'Səs yazısını olduğu dildə dəqiq mətnə çevir. Yalnız mətni qaytar.',
               },
-            },
-          ],
-        },
-      ],
-    });
+              {
+                inlineData: {
+                  mimeType,
+                  data:
+                    bytes.toString('base64'),
+                },
+              },
+            ],
+          },
+        ],
+      });
 
     if (!response.text?.trim()) {
       throw new Error(
@@ -421,12 +591,90 @@ export class AiOrchestratorService {
     return response.text.trim();
   }
 
-  private providerOrder(): AiProviderName[] {
+  private providerOrder():
+    AiProviderName[] {
     return (
       this.config.get<AiProviderName[]>(
         'AI_PROVIDER_ORDER',
-      ) ?? ['gemini', 'openai', 'claude']
+      ) ?? [
+        'gemini',
+        'openai',
+        'claude',
+      ]
     );
+  }
+
+  private parseVoiceTranslation(
+    value: string,
+    fallbackTranscript: string,
+  ): Omit<
+    VoiceTranslationResult,
+    'provider'
+  > {
+    const normalized = value
+      .trim()
+      .replace(
+        /^```(?:json)?\s*/i,
+        '',
+      )
+      .replace(/\s*```$/, '');
+
+    try {
+      const parsed =
+        JSON.parse(normalized) as {
+          shouldTranslate?: unknown;
+          sourceText?: unknown;
+          targetLanguage?: unknown;
+          translatedText?: unknown;
+        };
+
+      const sourceText =
+        typeof parsed.sourceText ===
+          'string' &&
+        parsed.sourceText.trim()
+          ? parsed.sourceText.trim()
+          : fallbackTranscript.trim();
+
+      const targetLanguage =
+        typeof parsed.targetLanguage ===
+        'string'
+          ? parsed.targetLanguage.trim()
+          : '';
+
+      const translatedText =
+        typeof parsed.translatedText ===
+        'string'
+          ? parsed.translatedText.trim()
+          : '';
+
+      const shouldTranslate =
+        parsed.shouldTranslate === true &&
+        Boolean(targetLanguage) &&
+        Boolean(translatedText);
+
+      return {
+        shouldTranslate,
+        sourceText,
+        targetLanguage:
+          shouldTranslate
+            ? targetLanguage
+            : undefined,
+        translatedText:
+          shouldTranslate
+            ? translatedText
+            : undefined,
+      };
+    } catch {
+      this.logger.warn(
+        'Voice translation analysis returned invalid JSON; using transcription only',
+      );
+
+      return {
+        shouldTranslate: false,
+        sourceText:
+          fallbackTranscript.trim(),
+      };
+    }
   }
 
   private isConfigured(
@@ -439,21 +687,21 @@ export class AiOrchestratorService {
           ? 'OPENAI_API_KEY'
           : 'ANTHROPIC_API_KEY';
 
-    return Boolean(this.config.get<string>(key));
+    return Boolean(
+      this.config.get<string>(key),
+    );
   }
 
   private conversationText(
     request: AiTextRequest,
   ): string {
-    const history = (request.history ?? [])
+    const history = (
+      request.history ?? []
+    )
       .slice(-8)
       .map(
         (turn) =>
-          `${
-            turn.role === 'user'
-              ? 'İstifadəçi'
-              : 'Köməkçi'
-          }: ${turn.text}`,
+          `${turn.role === 'user' ? 'İstifadəçi' : 'Köməkçi'}: ${turn.text}`,
       )
       .join('\n');
 
@@ -462,9 +710,12 @@ export class AiOrchestratorService {
       : request.text;
   }
 
-  private defaultSystemInstruction(): string {
+  private defaultSystemInstruction():
+    string {
     return (
-      this.config.get<string>('AI_SYSTEM_PROMPT') ??
+      this.config.get<string>(
+        'AI_SYSTEM_PROMPT',
+      ) ??
       'Sən AdYarat WhatsApp AI köməkçisisən. İstifadəçinin dilində aydın, faydalı və yığcam cavab ver.'
     );
   }
@@ -477,8 +728,11 @@ export class AiOrchestratorService {
     );
   }
 
-  private requireConfig(name: string): string {
-    const value = this.config.get<string>(name);
+  private requireConfig(
+    name: string,
+  ): string {
+    const value =
+      this.config.get<string>(name);
 
     if (!value) {
       throw new Error(
@@ -493,7 +747,9 @@ export class AiOrchestratorService {
     operation: () => Promise<T>,
   ): Promise<T> {
     const attempts =
-      this.config.get<number>('AI_RETRY_ATTEMPTS') ?? 3;
+      this.config.get<number>(
+        'AI_RETRY_ATTEMPTS',
+      ) ?? 3;
 
     let lastError: unknown;
 
@@ -515,7 +771,10 @@ export class AiOrchestratorService {
         }
 
         await new Promise((resolve) =>
-          setTimeout(resolve, 800 * 2 ** attempt),
+          setTimeout(
+            resolve,
+            800 * 2 ** attempt,
+          ),
         );
       }
     }
@@ -523,7 +782,9 @@ export class AiOrchestratorService {
     throw lastError;
   }
 
-  private isTransient(error: unknown): boolean {
+  private isTransient(
+    error: unknown,
+  ): boolean {
     const status =
       error instanceof AiProviderError
         ? error.status
@@ -531,21 +792,28 @@ export class AiOrchestratorService {
             error !== null &&
             'status' in error
           ? Number(
-              (error as { status?: unknown }).status,
+              (
+                error as {
+                  status?: unknown;
+                }
+              ).status,
             )
           : undefined;
 
     return (
       status === 408 ||
       status === 429 ||
-      (status !== undefined && status >= 500) ||
+      (status !== undefined &&
+        status >= 500) ||
       /429|5\d\d|high demand|unavailable|timeout/i.test(
         this.errorMessage(error),
       )
     );
   }
 
-  private errorMessage(error: unknown): string {
+  private errorMessage(
+    error: unknown,
+  ): string {
     return error instanceof Error
       ? error.message
       : String(error);
