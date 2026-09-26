@@ -2,12 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
 import { AiConversationTurn, AiProviderName } from '../ai/ai.types';
-import {
-  isVideoIntent,
-  parseProviderCommand,
-  providerLabel,
-  splitText,
-} from '../ai/ai.utils';
+import { isVideoIntent, parseProviderCommand, providerLabel, splitText } from '../ai/ai.utils';
 import { DocumentTranslationService } from '../ai/document-translation.service';
 import { Contact, ConversationMessage } from '../common/domain';
 import { MediaStoreService } from '../media/media-store.service';
@@ -22,17 +17,9 @@ import {
   WhatsAppTextMessage,
   WhatsAppWebhookPayload,
 } from './whatsapp.types';
-import {
-  extractMessages,
-  extractStatuses,
-  normalizeCommand,
-} from './webhook.utils';
+import { extractMessages, extractStatuses, normalizeCommand } from './webhook.utils';
 
-const ALLOWED_IMAGE_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 @Injectable()
 export class WhatsAppProcessorService {
@@ -69,9 +56,7 @@ export class WhatsAppProcessorService {
         status: 'received',
       });
 
-      if (!isNew) {
-        continue;
-      }
+      if (!isNew) continue;
 
       await this.whatsapp.markAsRead(message.id).catch((error: unknown) => {
         this.logger.warn(
@@ -96,7 +81,10 @@ export class WhatsAppProcessorService {
     }
 
     if (message.type === 'document') {
-      return this.handleDocument(contact, message as WhatsAppDocumentMessage);
+      return this.handleDocument(
+        contact,
+        message as WhatsAppDocumentMessage,
+      );
     }
 
     if (message.type === 'text') {
@@ -202,25 +190,62 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (['status', 'vəziyyət', 'veziyyet', '/status'].includes(command)) {
+    if (
+      ['status', 'vəziyyət', 'veziyyet', '/status'].includes(command)
+    ) {
       await this.sendStatus(contact);
       return;
     }
 
-    if (['ləğv', 'legv', 'cancel', '/cancel'].includes(command)) {
+    if (
+      ['ləğv', 'legv', 'cancel', '/cancel'].includes(command)
+    ) {
       await this.cancelVideoFlow(contact);
+      return;
+    }
+
+    if (
+      contact.state === 'awaiting_prompt' &&
+      contact.pendingImagePath
+    ) {
+      await this.createVideoJob(contact, rawText);
+      return;
+    }
+
+    if (contact.state === 'awaiting_ad_copy_brief') {
+      await this.createAdCopy(contact, rawText);
+      return;
+    }
+
+    if (contact.state === 'awaiting_voice_ad_brief') {
+      await this.createVoiceAd(contact, rawText);
+      return;
+    }
+
+    if (command.startsWith('/ai ')) {
+      await this.handleAiChat(
+        contact,
+        message.id,
+        rawText.slice(rawText.indexOf(' ') + 1).trim(),
+      );
       return;
     }
 
     if (command === '/ai') {
       await this.reply(
         contact,
-        '🤖 AI söhbəti hazırdır. Sualınızı adi mətn kimi yazın. Sistem uyğun provayderi avtomatik seçəcək.',
+        '🤖 Sualınızı komandanın yanında yazın. Məsələn: /ai Bakı üçün reklam ideyası ver',
       );
       return;
     }
 
     if (command === '/video') {
+      if (contact.pendingImagePath) {
+        await this.dataStore.updateContact(contact.id, {
+          state: 'awaiting_prompt',
+        });
+      }
+
       await this.reply(
         contact,
         contact.pendingImagePath
@@ -233,7 +258,7 @@ export class WhatsAppProcessorService {
     if (command === '/voice') {
       await this.reply(
         contact,
-        '🎙️ Səs mesajını göndərin. Səsin sonunda hansı dilə tərcümə etmək istədiyinizi deyə bilərsiniz. Məsələn: “Bu səsi ingilis dilinə çevir.”',
+        '🎙️ Səs mesajını bu söhbətə göndərin. Onu avtomatik olaraq mətnə çevirəcəyəm.',
       );
       return;
     }
@@ -254,7 +279,9 @@ export class WhatsAppProcessorService {
       await this.reply(
         contact,
         `🤖 ${label} ilə danışmaq üçün komandanın yanında sualınızı yazın.\nMəsələn: /${
-          parsed.provider === 'openai' ? 'chatgpt' : parsed.provider
+          parsed.provider === 'openai'
+            ? 'chatgpt'
+            : parsed.provider
         } Bakı haqqında qısa məlumat ver`,
       );
       return;
@@ -270,11 +297,6 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (contact.state === 'awaiting_prompt' && contact.pendingImagePath) {
-      await this.createVideoJob(contact, rawText);
-      return;
-    }
-
     if (isVideoIntent(parsed.text)) {
       await this.reply(
         contact,
@@ -283,12 +305,7 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    await this.handleAiChat(
-      contact,
-      message.id,
-      parsed.text,
-      parsed.provider,
-    );
+    await this.sendMainMenu(contact);
   }
 
   private async handleInteractive(
@@ -300,11 +317,11 @@ export class WhatsAppProcessorService {
       message.interactive.button_reply?.id ??
       '';
 
-    if (choiceId === 'menu_ai') {
-      await this.reply(
-        contact,
-        '🤖 Hazıram. Sualınızı adi mətn kimi yazın; uyğun AI avtomatik seçiləcək.',
-      );
+    if (
+      choiceId === 'menu_create_ad' ||
+      choiceId === 'quick_new_ad'
+    ) {
+      await this.sendAdTypeMenu(contact);
       return;
     }
 
@@ -313,18 +330,111 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (choiceId === 'quick_ai') {
+    if (choiceId === 'menu_my_ads') {
+      await this.sendStatus(contact);
+      return;
+    }
+
+    if (choiceId === 'menu_packages') {
       await this.reply(
         contact,
-        '💬 Sualınızı adi mətn kimi yazın. AI cavab verəcək.',
+        [
+          '🎁 Pilot mərhələsi',
+          '',
+          'İlk nümunə reklam pulsuzdur.',
+          '10 saniyəlik növbəti reklam üçün sifariş məlumatını dəstək vasitəsilə əldə edə bilərsiniz.',
+          '',
+          'Onlayn ödəniş sistemi hələ aktiv deyil.',
+        ].join('\n'),
+      );
+
+      await this.sendQuickActions(contact);
+      return;
+    }
+
+    if (
+      choiceId === 'menu_support' ||
+      choiceId === 'quick_support'
+    ) {
+      await this.reply(
+        contact,
+        this.helpText(contact.profileName),
+      );
+
+      await this.sendQuickActions(contact);
+      return;
+    }
+
+    if (
+      choiceId === 'ad_video' ||
+      choiceId === 'menu_video' ||
+      choiceId === 'quick_video'
+    ) {
+      await this.dataStore.updateContact(contact.id, {
+        state: contact.pendingImagePath
+          ? 'awaiting_prompt'
+          : 'new',
+      });
+
+      await this.reply(
+        contact,
+        contact.pendingImagePath
+          ? '🎬 Məhsul şəkliniz hazırdır. İndi videoda nə baş verməsini istədiyinizi yazın.'
+          : '🎬 Video reklam üçün məhsul şəklini göndərin. Sonra videoda nə baş verməsini istədiyinizi yazacaqsınız.',
       );
       return;
     }
 
-    if (choiceId === 'quick_video') {
+    if (choiceId === 'ad_copy') {
+      await this.dataStore.updateContact(contact.id, {
+        state: 'awaiting_ad_copy_brief',
+      });
+
       await this.reply(
         contact,
-        '🎬 Məhsul şəklini göndərin. Sonra video təsvirini yazın.',
+        [
+          '✍️ Reklam mətni hazırlayaq.',
+          '',
+          'Məhsul və ya xidmətinizi qısa təsvir edin:',
+          '• nə təklif edirsiniz;',
+          '• əsas üstünlüyü nədir;',
+          '• kimlər üçündür;',
+          '• varsa qiymət, kampaniya və paylaşılacaq platforma.',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    if (choiceId === 'ad_voice') {
+      await this.dataStore.updateContact(contact.id, {
+        state: 'awaiting_voice_ad_brief',
+      });
+
+      await this.reply(
+        contact,
+        [
+          '🎙 Səsli reklam hazırlayaq.',
+          '',
+          'Məhsul və ya xidmət haqqında məlumatı mətn və ya səs mesajı kimi göndərin.',
+          'AdYarat reklam mətnini və səsləndirilmiş audio faylını hazırlayacaq.',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    // Köhnə söhbətlərdə artıq göndərilmiş düymələr üçün.
+    if (choiceId === 'menu_ai') {
+      await this.reply(
+        contact,
+        '🤖 Sualınızı belə yazın: /ai sualınız',
+      );
+      return;
+    }
+
+    if (choiceId === 'quick_ai') {
+      await this.reply(
+        contact,
+        '💬 Sualınızı belə yazın: /ai sualınız',
       );
       return;
     }
@@ -353,20 +463,10 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (choiceId === 'menu_video') {
-      await this.reply(
-        contact,
-        contact.pendingImagePath
-          ? '🎬 Məhsul şəkliniz hazırdır. İndi videoda nə baş verməsini istədiyinizi yazın.'
-          : '🎬 Məhsul şəklini göndərin. Sonra videoda nə baş verməsini yazın.',
-      );
-      return;
-    }
-
     if (choiceId === 'menu_voice') {
       await this.reply(
         contact,
-        '🎙️ Səs mesajını göndərin. Mətni başqa dilə çevirmək üçün səsin sonunda hədəf dili deyin.',
+        '🎙️ Səs mesajını göndərin. Onu mətnə çevirəcəyəm.',
       );
       return;
     }
@@ -421,7 +521,7 @@ export class WhatsAppProcessorService {
 
       await this.reply(
         contact,
-        `🤖 ${providerLabel(result.provider)}:\n${result.text}`,
+        `🤖 AdYarat:\n${result.text}`,
         {
           provider: result.provider,
         },
@@ -447,9 +547,14 @@ export class WhatsAppProcessorService {
     message: WhatsAppAudioMessage,
   ): Promise<void> {
     try {
+      const isVoiceAdBrief =
+        contact.state === 'awaiting_voice_ad_brief';
+
       await this.reply(
         contact,
-        '🎙️ Səs alındı. Mətnə çevirirəm...',
+        isVoiceAdBrief
+          ? '🎙 Səsli məlumat alındı. Reklam ssenarisi hazırlanır...'
+          : '🎙️ Səs alındı. Mətnə çevirirəm...',
       );
 
       const media = await this.whatsapp.downloadMedia(
@@ -474,21 +579,29 @@ export class WhatsAppProcessorService {
       const result = await this.ai.transcribe(
         media.bytes,
         media.mimeType,
-        `whatsapp-audio.${this.audioExtension(media.mimeType)}`,
+        `whatsapp-audio.${this.audioExtension(
+          media.mimeType,
+        )}`,
       );
 
-      const translation = await this.ai.translateVoiceCommand(
-        result.text,
-      );
+      if (isVoiceAdBrief) {
+        await this.createVoiceAd(contact, result.text);
+        return;
+      }
+
+      const translation =
+        await this.ai.translateVoiceCommand(result.text);
 
       if (!translation.shouldTranslate) {
         await this.reply(
           contact,
-          `📝 Səsin mətni (${providerLabel(
-            result.provider,
-          )}):\n\n${
-            translation.sourceText
-          }\n\nTərcümə üçün səsin sonunda, məsələn, “bu səsi ingilis dilinə çevir” deyin.`,
+          [
+            '📝 Səsin mətni:',
+            '',
+            translation.sourceText,
+            '',
+            'Tərcümə üçün səsin sonunda, məsələn, “bu səsi ingilis dilinə çevir” deyin.',
+          ].join('\n'),
           {
             provider: result.provider,
             task: 'transcription',
@@ -504,7 +617,13 @@ export class WhatsAppProcessorService {
 
       await this.reply(
         contact,
-        `🌍 ${targetLanguage} tərcüməsi:\n\n${translatedText}\n\n🔊 Aşağıdakı səs AI tərəfindən yaradılıb.`,
+        [
+          `🌍 ${targetLanguage} tərcüməsi:`,
+          '',
+          translatedText,
+          '',
+          '🔊 Aşağıdakı səs AI tərəfindən yaradılıb.',
+        ].join('\n'),
         {
           provider: translation.provider,
           task: 'voice-translation',
@@ -596,9 +715,7 @@ export class WhatsAppProcessorService {
         translated.bytes,
         translated.mimeType,
         translated.filename,
-        `Tərcümə hazırdır ✅\nAI: ${translated.providers
-          .map(providerLabel)
-          .join(', ')}`,
+        'Tərcümə hazırdır ✅\nAdYarat tərəfindən hazırlanıb.',
       );
 
       await this.dataStore.recordMessage({
@@ -623,6 +740,173 @@ export class WhatsAppProcessorService {
       await this.reply(
         contact,
         `Sənəd tərcümə edilmədi: ${this.publicError(error)}`,
+      );
+
+      await this.sendQuickActions(contact);
+    }
+  }
+
+  private async createAdCopy(
+    contact: Contact,
+    brief: string,
+  ): Promise<void> {
+    if (brief.length < 10) {
+      await this.reply(
+        contact,
+        'Məlumatı bir az daha ətraflı yazın. Məhsulun adı, üstünlüyü və kimlər üçün olduğunu qeyd edin.',
+      );
+      return;
+    }
+
+    try {
+      await this.reply(
+        contact,
+        '✍️ Məlumat alındı. Reklam mətniniz hazırlanır...',
+      );
+
+      const result = await this.ai.answer({
+        text: brief,
+        maxOutputTokens: 900,
+        systemInstruction: [
+          'Sən Azərbaycan bazarı üçün peşəkar reklam kopirayterisən.',
+          'İstifadəçinin məhsul və ya xidmət məlumatına əsasən hazır reklam paketi yaz.',
+          'Cavab yalnız Azərbaycan dilində olsun.',
+          'Bu quruluşu saxla:',
+          '🎯 Başlıq:',
+          '📝 Reklam mətni:',
+          '📣 Çağırış:',
+          '📱 Sosial media paylaşımı:',
+          '#️⃣ Hashtag-lər:',
+          'Fakt uydurma, verilməyən qiymət və kampaniya əlavə etmə.',
+        ].join('\n'),
+      });
+
+      await this.dataStore.updateContact(contact.id, {
+        state: 'new',
+      });
+
+      await this.reply(
+        contact,
+        `✍️ Reklam mətniniz hazırdır:\n\n${result.text}`,
+        {
+          provider: result.provider,
+          task: 'ad-copy',
+          brief,
+        },
+      );
+
+      await this.sendQuickActions(contact);
+    } catch (error) {
+      this.logger.warn(
+        `Ad copy generation failed: ${this.errorMessage(error)}`,
+      );
+
+      await this.reply(
+        contact,
+        'Reklam mətni hazırda yaradıla bilmədi. Məlumatı bir az sonra yenidən göndərin.',
+      );
+
+      await this.sendQuickActions(contact);
+    }
+  }
+
+  private async createVoiceAd(
+    contact: Contact,
+    brief: string,
+  ): Promise<void> {
+    if (brief.length < 10) {
+      await this.reply(
+        contact,
+        'Məlumatı bir az daha ətraflı göndərin. Məhsulun adı, üstünlüyü və təklifinizi qeyd edin.',
+      );
+      return;
+    }
+
+    try {
+      await this.reply(
+        contact,
+        '🎙 Məlumat alındı. Səsli reklamınız hazırlanır...',
+      );
+
+      const result = await this.ai.answer({
+        text: brief,
+        maxOutputTokens: 500,
+        systemInstruction: [
+          'Sən Azərbaycan bazarı üçün peşəkar reklam ssenaristi və diktor mətn müəllifisən.',
+          'Verilən məlumata əsasən 15–30 saniyəlik, təbii və inandırıcı səsli reklam mətni yaz.',
+          'Cavab yalnız Azərbaycan dilində, bir qısa abzas şəklində olsun.',
+          'Başlıq, izah, səhnə qeydi və hashtag yazma.',
+          'Fakt uydurma, verilməyən qiymət və kampaniya əlavə etmə.',
+        ].join('\n'),
+      });
+
+      await this.dataStore.updateContact(contact.id, {
+        state: 'new',
+      });
+
+      await this.reply(
+        contact,
+        [
+          '🎙 Səsli reklam mətniniz:',
+          '',
+          result.text,
+          '',
+          '🔊 Səs faylı hazırlanır...',
+        ].join('\n'),
+        {
+          provider: result.provider,
+          task: 'voice-ad-script',
+          brief,
+        },
+      );
+
+      try {
+        const speech = await this.ai.synthesizeSpeech(
+          result.text,
+          'Azərbaycan dili',
+        );
+
+        const messageId = await this.whatsapp.sendAudio(
+          contact.waId,
+          speech.bytes,
+          speech.mimeType,
+          speech.filename,
+        );
+
+        await this.dataStore.recordMessage({
+          waMessageId: messageId,
+          contactId: contact.id,
+          direction: 'outbound',
+          type: 'audio',
+          content: {
+            provider: speech.provider,
+            task: 'voice-ad',
+            text: result.text,
+          },
+          status: 'sent',
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Voice ad speech generation failed: ${this.errorMessage(
+            error,
+          )}`,
+        );
+
+        await this.reply(
+          contact,
+          'Reklam mətni hazırdır, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
+        );
+      }
+
+      await this.sendQuickActions(contact);
+    } catch (error) {
+      this.logger.warn(
+        `Voice ad generation failed: ${this.errorMessage(error)}`,
+      );
+
+      await this.reply(
+        contact,
+        'Səsli reklam hazırda yaradıla bilmədi. Məlumatı bir az sonra yenidən göndərin.',
       );
 
       await this.sendQuickActions(contact);
@@ -668,7 +952,8 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    const prompt = await this.ai.enhanceVideoPrompt(rawText);
+    const prompt =
+      await this.ai.enhanceVideoPrompt(rawText);
 
     await this.dataStore.createJob({
       contactId: contact.id,
@@ -711,7 +996,7 @@ export class WhatsAppProcessorService {
 
     await this.reply(
       contact,
-      'Video sorğusu ləğv edildi. İndi adi sualınızı yaza bilərsiniz.',
+      'Video sorğusu ləğv edildi. Əsas menyudan yeni xidmət seçə bilərsiniz.',
     );
 
     await this.sendQuickActions(contact);
@@ -720,7 +1005,8 @@ export class WhatsAppProcessorService {
   private async sendStatus(
     contact: Contact,
   ): Promise<void> {
-    const job = await this.dataStore.getLatestJob(contact.id);
+    const job =
+      await this.dataStore.getLatestJob(contact.id);
 
     if (!job) {
       await this.reply(
@@ -741,7 +1027,9 @@ export class WhatsAppProcessorService {
 
     await this.reply(
       contact,
-      `Son video sorğunuz: ${labels[job.status] ?? job.status}`,
+      `Son video sorğunuz: ${
+        labels[job.status] ?? job.status
+      }`,
     );
 
     await this.sendQuickActions(contact);
@@ -752,7 +1040,10 @@ export class WhatsAppProcessorService {
     currentMessageId: string,
   ): Promise<AiConversationTurn[]> {
     const messages =
-      await this.dataStore.getRecentMessages(contactId, 12);
+      await this.dataStore.getRecentMessages(
+        contactId,
+        12,
+      );
 
     return messages
       .filter(
@@ -762,7 +1053,8 @@ export class WhatsAppProcessorService {
       )
       .map((message) => this.toConversationTurn(message))
       .filter(
-        (turn): turn is AiConversationTurn => Boolean(turn),
+        (turn): turn is AiConversationTurn =>
+          Boolean(turn),
       )
       .slice(-8);
   }
@@ -770,7 +1062,10 @@ export class WhatsAppProcessorService {
   private toConversationTurn(
     message: ConversationMessage,
   ): AiConversationTurn | undefined {
-    if (!message.content || typeof message.content !== 'object') {
+    if (
+      !message.content ||
+      typeof message.content !== 'object'
+    ) {
       return undefined;
     }
 
@@ -785,9 +1080,7 @@ export class WhatsAppProcessorService {
           ? content.text.body
           : undefined;
 
-    if (!text?.trim()) {
-      return undefined;
-    }
+    if (!text?.trim()) return undefined;
 
     return {
       role:
@@ -804,15 +1097,17 @@ export class WhatsAppProcessorService {
     metadata: Record<string, unknown> = {},
   ): Promise<void> {
     const maxLength = Math.min(
-      this.config.get<number>('AI_MAX_REPLY_CHARS') ?? 3500,
+      this.config.get<number>('AI_MAX_REPLY_CHARS') ??
+        3500,
       4000,
     );
 
     for (const part of splitText(text, maxLength)) {
-      const messageId = await this.whatsapp.sendText(
-        contact.waId,
-        part,
-      );
+      const messageId =
+        await this.whatsapp.sendText(
+          contact.waId,
+          part,
+        );
 
       await this.dataStore.recordMessage({
         waMessageId: messageId,
@@ -831,10 +1126,11 @@ export class WhatsAppProcessorService {
   private async sendMainMenu(
     contact: Contact,
   ): Promise<void> {
-    const messageId = await this.whatsapp.sendMainMenu(
-      contact.waId,
-      contact.profileName,
-    );
+    const messageId =
+      await this.whatsapp.sendMainMenu(
+        contact.waId,
+        contact.profileName,
+      );
 
     await this.dataStore.recordMessage({
       waMessageId: messageId,
@@ -848,12 +1144,32 @@ export class WhatsAppProcessorService {
     });
   }
 
+  private async sendAdTypeMenu(
+    contact: Contact,
+  ): Promise<void> {
+    const messageId =
+      await this.whatsapp.sendAdTypeMenu(contact.waId);
+
+    await this.dataStore.recordMessage({
+      waMessageId: messageId,
+      contactId: contact.id,
+      direction: 'outbound',
+      type: 'interactive',
+      content: {
+        menu: 'ad-types',
+      },
+      status: 'sent',
+    });
+  }
+
   private async sendQuickActions(
     contact: Contact,
   ): Promise<void> {
     try {
       const messageId =
-        await this.whatsapp.sendQuickActions(contact.waId);
+        await this.whatsapp.sendQuickActions(
+          contact.waId,
+        );
 
       await this.dataStore.recordMessage({
         waMessageId: messageId,
@@ -867,7 +1183,9 @@ export class WhatsAppProcessorService {
       });
     } catch (error) {
       this.logger.warn(
-        `Could not send quick actions: ${this.errorMessage(error)}`,
+        `Could not send quick actions: ${this.errorMessage(
+          error,
+        )}`,
       );
     }
   }
@@ -879,57 +1197,33 @@ export class WhatsAppProcessorService {
 
     return [
       greeting,
-      'AdYarat çoxfunksiyalı WhatsApp AI köməkçisidir.',
+      'AdYarat məhsul və xidmətlər üçün reklam hazırlayır.',
       '',
-      '💬 Adi sualınızı yazın — AI cavab versin',
-      '🎬 Video — məhsul şəklini göndərin, sonra təsviri yazın',
-      '🎙️ Səs — səs göndərin; mətni və tərcümə olunmuş səsi alın',
-      '📚 Tərcümə — PDF/DOCX/TXT göndərin; caption-da dili yazın',
+      '✨ Yeni reklam — reklam növünü seçin',
+      '🎬 Video reklam — məhsul şəklindən qısa reklam videosu',
+      '✍️ Reklam mətni — paylaşım üçün hazır reklam yazısı',
+      '🎙 Səsli reklam — reklam mətni və səsləndirilmiş audio',
+      '📁 Reklamlarım — son video sorğusunun vəziyyəti',
       '',
-      'Komandalar:',
-      '/ai — avtomatik AI seçimi',
-      '/gemini sualınız',
-      '/chatgpt sualınız',
-      '/claude sualınız',
-      '/video — video təlimatı',
-      '/voice — səsdən mətnə və səsli tərcümə',
-      '/translate — sənəd tərcüməsi',
-      '/status — video vəziyyəti',
-      '/cancel — video sorğusunu ləğv et',
-      '',
-      'Menyunu yenidən görmək üçün /help yazın.',
+      'Əsas menyunu istənilən vaxt açmaq üçün MENYU yazın.',
     ].join('\n');
   }
 
-  private imageExtension(mimeType: string): string {
-    if (mimeType === 'image/png') {
-      return 'png';
-    }
-
-    if (mimeType === 'image/webp') {
-      return 'webp';
-    }
-
+  private imageExtension(
+    mimeType: string,
+  ): string {
+    if (mimeType === 'image/png') return 'png';
+    if (mimeType === 'image/webp') return 'webp';
     return 'jpg';
   }
 
-  private audioExtension(mimeType: string): string {
-    if (mimeType.includes('mpeg')) {
-      return 'mp3';
-    }
-
-    if (mimeType.includes('mp4')) {
-      return 'm4a';
-    }
-
-    if (mimeType.includes('wav')) {
-      return 'wav';
-    }
-
-    if (mimeType.includes('webm')) {
-      return 'webm';
-    }
-
+  private audioExtension(
+    mimeType: string,
+  ): string {
+    if (mimeType.includes('mpeg')) return 'mp3';
+    if (mimeType.includes('mp4')) return 'm4a';
+    if (mimeType.includes('wav')) return 'wav';
+    if (mimeType.includes('webm')) return 'webm';
     return 'ogg';
   }
 
