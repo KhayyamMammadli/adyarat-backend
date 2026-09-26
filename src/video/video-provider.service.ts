@@ -189,10 +189,10 @@ export class VideoProviderService {
       this.stringify(details);
 
     if (
-      /not enough credits|insufficient credits|credit balance/i.test(
-        message,
-      )
-    ) {
+        /not (?:have )?enough credits|insufficient credits|credit balance/i.test(
+          message,
+        )
+      ) {
       return new ExternalServiceError(
         'Runway account does not have enough credits',
         status,
