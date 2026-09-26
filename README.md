@@ -102,7 +102,7 @@ Hər yeni istifadəçiyə bir uğurlu pulsuz video verilir. Runway xəta verərs
 Öz test nömrələrinizi limitdən azad etmək üçün Render Environment bölməsində aşağıdakı dəyişəni əlavə edin:
 
 ```env
-PILOT_UNLIMITED_WA_IDS=994501234567,AZ.1798521701155548
+PILOT_UNLIMITED_WA_IDS=994501234567,AZ.EXAMPLE_USER_ID
 ```
 
 Dəyərlər `wa_contacts.wa_id` sütunundan götürülməli, vergüllə ayrılmalı və aralarında boşluq olmamalıdır. Buraya AdYaratın biznes nömrəsi deyil, AdYarata mesaj göndərən test hesabları yazılır.
