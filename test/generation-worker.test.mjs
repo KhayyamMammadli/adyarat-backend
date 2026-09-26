@@ -4,17 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { ExternalServiceError } from '../dist/common/errors.js';
 import { GenerationWorkerService } from '../dist/video/generation-worker.service.js';
 
-test(
-  'generation failure marks the job failed and notifies the WhatsApp user',
-  async () => {
-    const jobUpdates = [];
-    const contactUpdates = [];
-    const sentTexts = [];
-    const recordedMessages = [];
+function entities() {
+  const now = new Date().toISOString();
 
-    let claimed = false;
-
-    const job = {
+  return {
+    job: {
       id: 'job-1',
       contactId: 'contact-1',
       status: 'processing',
@@ -22,30 +16,42 @@ test(
       prompt: 'Demo video',
       inputStoragePath: 'inputs/demo.jpg',
       inputMimeType: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const contact = {
+      createdAt: now,
+      updatedAt: now,
+    },
+    contact: {
       id: 'contact-1',
       waId: '994501234567',
       state: 'processing',
       pendingImagePath: 'inputs/demo.jpg',
       pendingImageMime: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+test(
+  'completed generation sends the video, clears the flow and shows quick actions',
+  async () => {
+    const { job, contact } = entities();
+
+    const jobUpdates = [];
+    const contactUpdates = [];
+    const storedMedia = [];
+    const sentVideos = [];
+    const quickActions = [];
+    const recordedMessages = [];
+
+    let claimed = false;
 
     const dataStore = {
       getStaleProcessingJobs: async () => [],
 
       claimNextJob: async () => {
-        if (claimed) {
-          return undefined;
-        }
+        if (claimed) return undefined;
 
         claimed = true;
-
         return job;
       },
 
@@ -53,25 +59,158 @@ test(
 
       updateJob: async (_id, patch) => {
         jobUpdates.push(patch);
-
-        return {
-          ...job,
-          ...patch,
-        };
+        return { ...job, ...patch };
       },
 
       updateContact: async (_id, patch) => {
         contactUpdates.push(patch);
-
-        return {
-          ...contact,
-          ...patch,
-        };
+        return { ...contact, ...patch };
       },
 
       recordMessage: async (message) => {
         recordedMessages.push(message);
+        return true;
+      },
+    };
 
+    const mediaStore = {
+      get: async () => Buffer.from('image'),
+
+      put: async (path, bytes, mimeType) => {
+        storedMedia.push({
+          path,
+          bytes,
+          mimeType,
+        });
+      },
+    };
+
+    const whatsapp = {
+      sendVideo: async (waId, bytes, caption) => {
+        sentVideos.push({
+          waId,
+          bytes,
+          caption,
+        });
+
+        return 'video-message-id';
+      },
+
+      sendQuickActions: async (waId) => {
+        quickActions.push(waId);
+        return 'quick-actions-message-id';
+      },
+    };
+
+    const provider = {
+      generate: async () => ({
+        bytes: Buffer.from('video'),
+        mimeType: 'video/mp4',
+        providerJobId: 'runway-task-1',
+      }),
+    };
+
+    const worker = new GenerationWorkerService(
+      new ConfigService({}),
+      dataStore,
+      mediaStore,
+      whatsapp,
+      provider,
+    );
+
+    await worker.tick();
+
+    assert.equal(storedMedia.length, 1);
+
+    assert.equal(
+      storedMedia[0].path,
+      'outputs/994501234567/job-1.mp4',
+    );
+
+    assert.equal(
+      storedMedia[0].mimeType,
+      'video/mp4',
+    );
+
+    assert.equal(sentVideos.length, 1);
+
+    assert.equal(
+      sentVideos[0].waId,
+      '994501234567',
+    );
+
+    assert.match(
+      sentVideos[0].caption,
+      /Videonuz hazırdır/,
+    );
+
+    assert.equal(
+      jobUpdates.at(-1).status,
+      'completed',
+    );
+
+    assert.equal(
+      jobUpdates.at(-1).providerJobId,
+      'runway-task-1',
+    );
+
+    assert.deepEqual(contactUpdates.at(-1), {
+      state: 'new',
+      pendingImagePath: undefined,
+      pendingImageMime: undefined,
+    });
+
+    assert.deepEqual(
+      quickActions,
+      ['994501234567'],
+    );
+
+    assert.deepEqual(
+      recordedMessages.map(
+        (message) => message.type,
+      ),
+      ['video', 'interactive'],
+    );
+  },
+);
+
+test(
+  'generation failure marks the job failed and notifies the WhatsApp user',
+  async () => {
+    const { job, contact } = entities();
+
+    const jobUpdates = [];
+    const contactUpdates = [];
+    const sentTexts = [];
+    const quickActions = [];
+    const recordedMessages = [];
+
+    let claimed = false;
+
+    const dataStore = {
+      getStaleProcessingJobs: async () => [],
+
+      claimNextJob: async () => {
+        if (claimed) return undefined;
+
+        claimed = true;
+        return job;
+      },
+
+      getContactById: async () => contact,
+
+      updateJob: async (_id, patch) => {
+        jobUpdates.push(patch);
+        return { ...job, ...patch };
+      },
+
+      updateContact: async (_id, patch) => {
+        contactUpdates.push(patch);
+        return { ...contact, ...patch };
+      },
+
+      recordMessage: async (message) => {
+        recordedMessages.push(message);
         return true;
       },
     };
@@ -83,12 +222,13 @@ test(
     const whatsapp = {
       sendText: async (_waId, text) => {
         sentTexts.push(text);
-
         return 'failure-message-id';
       },
 
-      sendQuickActions: async () =>
-        'quick-actions-message-id',
+      sendQuickActions: async (waId) => {
+        quickActions.push(waId);
+        return 'quick-actions-message-id';
+      },
     };
 
     const provider = {
@@ -135,9 +275,19 @@ test(
       /müvəqqəti əlçatan deyil/,
     );
 
+    assert.deepEqual(
+      quickActions,
+      ['994501234567'],
+    );
+
     assert.equal(
       recordedMessages[0].content.event,
       'video-generation-failed',
+    );
+
+    assert.equal(
+      recordedMessages[1].content.menu,
+      'quick-actions',
     );
   },
 );
