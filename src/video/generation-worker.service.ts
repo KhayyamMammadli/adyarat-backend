@@ -5,8 +5,14 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Contact, GenerationJob } from '../common/domain';
-import { errorMessage, ExternalServiceError } from '../common/errors';
+import {
+  Contact,
+  GenerationJob,
+} from '../common/domain';
+import {
+  errorMessage,
+  ExternalServiceError,
+} from '../common/errors';
 import { MediaStoreService } from '../media/media-store.service';
 import { DataStoreService } from '../supabase/data-store.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
@@ -14,9 +20,14 @@ import { VideoProviderService } from './video-provider.service';
 
 @Injectable()
 export class GenerationWorkerService
-  implements OnModuleInit, OnApplicationShutdown
+  implements
+    OnModuleInit,
+    OnApplicationShutdown
 {
-  private readonly logger = new Logger(GenerationWorkerService.name);
+  private readonly logger = new Logger(
+    GenerationWorkerService.name,
+  );
+
   private timer?: NodeJS.Timeout;
   private busy = false;
 
@@ -29,11 +40,18 @@ export class GenerationWorkerService
   ) {}
 
   onModuleInit(): void {
-    const interval = this.config.get<number>('GENERATION_POLL_MS') ?? 3000;
+    const interval =
+      this.config.get<number>(
+        'GENERATION_POLL_MS',
+      ) ?? 3000;
 
     void this.safeTick();
 
-    this.timer = setInterval(() => void this.safeTick(), interval);
+    this.timer = setInterval(
+      () => void this.safeTick(),
+      interval,
+    );
+
     this.timer.unref();
   }
 
@@ -44,42 +62,52 @@ export class GenerationWorkerService
   }
 
   async tick(): Promise<void> {
-    if (this.busy) {
-      return;
-    }
+    if (this.busy) return;
 
     this.busy = true;
 
     try {
       await this.recoverStaleJobs();
 
-      const job = await this.dataStore.claimNextJob();
+      const job =
+        await this.dataStore.claimNextJob();
 
-      if (!job) {
-        return;
-      }
+      if (!job) return;
 
-      const contact = await this.dataStore.getContactById(job.contactId);
+      const contact =
+        await this.dataStore.getContactById(
+          job.contactId,
+        );
 
       if (!contact) {
-        await this.dataStore.updateJob(job.id, {
-          status: 'failed',
-          errorMessage: 'Contact not found',
-        });
+        await this.dataStore.updateJob(
+          job.id,
+          {
+            status: 'failed',
+            errorMessage:
+              'Contact not found',
+          },
+        );
 
         return;
       }
 
       try {
-        const image = await this.mediaStore.get(job.inputStoragePath);
+        const image =
+          await this.mediaStore.get(
+            job.inputStoragePath,
+          );
 
-        const result = await this.provider.generate({
-          image,
-          imageMimeType: job.inputMimeType,
-          prompt: job.prompt,
-        });
+        const result =
+          await this.provider.generate({
+            image,
+            imageMimeType:
+              job.inputMimeType,
+            prompt: job.prompt,
+          });
 
-        const outputPath = `outputs/${contact.waId}/${job.id}.mp4`;
+        const outputPath =
+          `outputs/${contact.waId}/${job.id}.mp4`;
 
         await this.mediaStore.put(
           outputPath,
@@ -87,11 +115,15 @@ export class GenerationWorkerService
           result.mimeType,
         );
 
-        const messageId = await this.whatsapp.sendVideo(
-          contact.waId,
-          result.bytes,
-          'Videonuz hazırdır 🎬\nAdYarat ilə hazırlanıb.',
-        );
+        const messageId =
+          await this.whatsapp.sendVideo(
+            contact.waId,
+            result.bytes,
+            [
+              'Videonuz hazırdır 🎬',
+              'AdYarat ilə hazırlanıb.',
+            ].join('\n'),
+          );
 
         await this.dataStore.recordMessage({
           waMessageId: messageId,
@@ -105,22 +137,45 @@ export class GenerationWorkerService
           status: 'sent',
         });
 
-        await this.dataStore.updateJob(job.id, {
-          status: 'completed',
-          outputStoragePath: outputPath,
-          providerJobId: result.providerJobId,
-          errorMessage: undefined,
-        });
+        await this.dataStore.updateJob(
+          job.id,
+          {
+            status: 'completed',
+            outputStoragePath:
+              outputPath,
+            providerJobId:
+              result.providerJobId,
+            errorMessage: undefined,
+          },
+        );
 
-        await this.dataStore.updateContact(contact.id, {
-          state: 'new',
-          pendingImagePath: undefined,
-          pendingImageMime: undefined,
-        });
+        await this.dataStore.updateContact(
+          contact.id,
+          {
+            state: 'new',
 
-        await this.sendQuickActions(contact.id, contact.waId);
+            ...(contact.freeVideoUsed ===
+            false
+              ? {
+                  freeVideoUsed: true,
+                }
+              : {}),
+
+            pendingImagePath: undefined,
+            pendingImageMime: undefined,
+          },
+        );
+
+        await this.sendQuickActions(
+          contact.id,
+          contact.waId,
+        );
       } catch (error) {
-        await this.handleGenerationFailure(job, contact, error);
+        await this.handleGenerationFailure(
+          job,
+          contact,
+          error,
+        );
       }
     } finally {
       this.busy = false;
@@ -132,7 +187,9 @@ export class GenerationWorkerService
       await this.tick();
     } catch (error) {
       this.logger.error(
-        `Generation worker tick failed: ${errorMessage(error)}`,
+        `Generation worker tick failed: ${errorMessage(
+          error,
+        )}`,
       );
     }
   }
@@ -149,25 +206,36 @@ export class GenerationWorkerService
     );
 
     try {
-      await this.dataStore.updateJob(job.id, {
-        status: 'failed',
-        errorMessage: message.slice(0, 2000),
-      });
+      await this.dataStore.updateJob(
+        job.id,
+        {
+          status: 'failed',
+          errorMessage:
+            message.slice(0, 2000),
+        },
+      );
     } catch (updateError) {
       this.logger.error(
-        `Could not mark generation job ${job.id} as failed: ${errorMessage(
+        `Could not mark generation job ${
+          job.id
+        } as failed: ${errorMessage(
           updateError,
         )}`,
       );
     }
 
     try {
-      await this.dataStore.updateContact(contact.id, {
-        state: 'awaiting_prompt',
-      });
+      await this.dataStore.updateContact(
+        contact.id,
+        {
+          state: 'awaiting_prompt',
+        },
+      );
     } catch (updateError) {
       this.logger.error(
-        `Could not reset contact ${contact.id} after generation failure: ${errorMessage(
+        `Could not reset contact ${
+          contact.id
+        } after generation failure: ${errorMessage(
           updateError,
         )}`,
       );
@@ -180,9 +248,17 @@ export class GenerationWorkerService
     );
   }
 
-  private publicFailureMessage(error: unknown): string {
-    if (error instanceof ExternalServiceError) {
-      if (error.code === 'insufficient_credits') {
+  private publicFailureMessage(
+    error: unknown,
+  ): string {
+    if (
+      error instanceof
+      ExternalServiceError
+    ) {
+      if (
+        error.code ===
+        'insufficient_credits'
+      ) {
         return [
           'Video hazırlana bilmədi ❌',
           'Video xidməti hazırda müvəqqəti əlçatan deyil. Bir az sonra yenidən yoxlayın.',
@@ -190,7 +266,9 @@ export class GenerationWorkerService
         ].join('\n');
       }
 
-      if (error.code === 'invalid_request') {
+      if (
+        error.code === 'invalid_request'
+      ) {
         return [
           'Video hazırlana bilmədi ❌',
           'Şəkil və ya yazdığınız təsvir video xidməti tərəfindən qəbul edilmədi.',
@@ -198,7 +276,9 @@ export class GenerationWorkerService
         ].join('\n');
       }
 
-      if (error.code === 'rate_limited') {
+      if (
+        error.code === 'rate_limited'
+      ) {
         return [
           'Video hazırlana bilmədi ❌',
           'Video xidməti hazırda çox yüklənib. Bir neçə dəqiqə sonra yenidən yoxlayın.',
@@ -218,7 +298,11 @@ export class GenerationWorkerService
     text: string,
   ): Promise<void> {
     try {
-      const messageId = await this.whatsapp.sendText(waId, text);
+      const messageId =
+        await this.whatsapp.sendText(
+          waId,
+          text,
+        );
 
       try {
         await this.dataStore.recordMessage({
@@ -228,7 +312,8 @@ export class GenerationWorkerService
           type: 'text',
           content: {
             text,
-            event: 'video-generation-failed',
+            event:
+              'video-generation-failed',
           },
           status: 'sent',
         });
@@ -241,16 +326,24 @@ export class GenerationWorkerService
       }
     } catch (error) {
       this.logger.error(
-        `Could not send failure message: ${errorMessage(error)}`,
+        `Could not send failure message: ${errorMessage(
+          error,
+        )}`,
       );
     }
 
-    await this.sendQuickActions(contactId, waId);
+    await this.sendQuickActions(
+      contactId,
+      waId,
+    );
   }
 
-  private async recoverStaleJobs(): Promise<void> {
+  private async recoverStaleJobs():
+    Promise<void> {
     const staleMs =
-      this.config.get<number>('GENERATION_STALE_MS') ??
+      this.config.get<number>(
+        'GENERATION_STALE_MS',
+      ) ??
       20 * 60 * 1000;
 
     const updatedBefore = new Date(
@@ -258,25 +351,33 @@ export class GenerationWorkerService
     ).toISOString();
 
     const staleJobs =
-      await this.dataStore.getStaleProcessingJobs(updatedBefore);
-
-    for (const job of staleJobs) {
-      const contact = await this.dataStore.getContactById(
-        job.contactId,
+      await this.dataStore.getStaleProcessingJobs(
+        updatedBefore,
       );
 
-      await this.dataStore.updateJob(job.id, {
-        status: 'failed',
-        errorMessage: 'Generation timed out or worker restarted',
-      });
+    for (const job of staleJobs) {
+      const contact =
+        await this.dataStore.getContactById(
+          job.contactId,
+        );
 
-      if (!contact) {
-        continue;
-      }
+      await this.dataStore.updateJob(
+        job.id,
+        {
+          status: 'failed',
+          errorMessage:
+            'Generation timed out or worker restarted',
+        },
+      );
 
-      await this.dataStore.updateContact(contact.id, {
-        state: 'awaiting_prompt',
-      });
+      if (!contact) continue;
+
+      await this.dataStore.updateContact(
+        contact.id,
+        {
+          state: 'awaiting_prompt',
+        },
+      );
 
       await this.sendFailureMessage(
         contact.id,
@@ -295,7 +396,9 @@ export class GenerationWorkerService
   ): Promise<void> {
     try {
       const messageId =
-        await this.whatsapp.sendQuickActions(waId);
+        await this.whatsapp.sendQuickActions(
+          waId,
+        );
 
       await this.dataStore.recordMessage({
         waMessageId: messageId,
@@ -309,7 +412,9 @@ export class GenerationWorkerService
       });
     } catch (error) {
       this.logger.warn(
-        `Could not send quick actions: ${errorMessage(error)}`,
+        `Could not send quick actions: ${errorMessage(
+          error,
+        )}`,
       );
     }
   }
