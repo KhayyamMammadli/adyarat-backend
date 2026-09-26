@@ -3,23 +3,12 @@ export type ContactState =
   | 'awaiting_prompt'
   | 'awaiting_ad_copy_brief'
   | 'awaiting_voice_ad_brief'
+  | 'awaiting_support_message'
   | 'processing';
 
-export type JobStatus =
-  | 'queued'
-  | 'processing'
-  | 'completed'
-  | 'failed';
-
-export type EventStatus =
-  | 'pending'
-  | 'processing'
-  | 'completed'
-  | 'failed';
-
-export type MessageDirection =
-  | 'inbound'
-  | 'outbound';
+export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+export type EventStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type MessageDirection = 'inbound' | 'outbound';
 
 export interface Contact {
   id: string;
@@ -76,7 +65,6 @@ export interface MessageRecord {
   status: string;
 }
 
-export interface ConversationMessage
-  extends MessageRecord {
+export interface ConversationMessage extends MessageRecord {
   createdAt: string;
 }
