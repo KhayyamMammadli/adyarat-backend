@@ -20,9 +20,7 @@ import { VideoProviderService } from './video-provider.service';
 
 @Injectable()
 export class GenerationWorkerService
-  implements
-    OnModuleInit,
-    OnApplicationShutdown
+  implements OnModuleInit, OnApplicationShutdown
 {
   private readonly logger = new Logger(
     GenerationWorkerService.name,
@@ -62,7 +60,9 @@ export class GenerationWorkerService
   }
 
   async tick(): Promise<void> {
-    if (this.busy) return;
+    if (this.busy) {
+      return;
+    }
 
     this.busy = true;
 
@@ -72,7 +72,9 @@ export class GenerationWorkerService
       const job =
         await this.dataStore.claimNextJob();
 
-      if (!job) return;
+      if (!job) {
+        return;
+      }
 
       const contact =
         await this.dataStore.getContactById(
@@ -80,34 +82,29 @@ export class GenerationWorkerService
         );
 
       if (!contact) {
-        await this.dataStore.updateJob(
-          job.id,
-          {
-            status: 'failed',
-            errorMessage:
-              'Contact not found',
-          },
-        );
+        await this.dataStore.updateJob(job.id, {
+          status: 'failed',
+          errorMessage: 'Contact not found',
+        });
 
         return;
       }
 
       try {
-        const image =
-          await this.mediaStore.get(
-            job.inputStoragePath,
-          );
+        const image = await this.mediaStore.get(
+          job.inputStoragePath,
+        );
 
         const result =
           await this.provider.generate({
             image,
-            imageMimeType:
-              job.inputMimeType,
+            imageMimeType: job.inputMimeType,
             prompt: job.prompt,
           });
 
         const outputPath =
-          `outputs/${contact.waId}/${job.id}.mp4`;
+          `outputs/${contact.waId}/` +
+          `${job.id}.mp4`;
 
         await this.mediaStore.put(
           outputPath,
@@ -137,30 +134,20 @@ export class GenerationWorkerService
           status: 'sent',
         });
 
-        await this.dataStore.updateJob(
-          job.id,
-          {
-            status: 'completed',
-            outputStoragePath:
-              outputPath,
-            providerJobId:
-              result.providerJobId,
-            errorMessage: undefined,
-          },
-        );
+        await this.dataStore.updateJob(job.id, {
+          status: 'completed',
+          outputStoragePath: outputPath,
+          providerJobId: result.providerJobId,
+          errorMessage: undefined,
+        });
 
         await this.dataStore.updateContact(
           contact.id,
           {
             state: 'new',
-
-            ...(contact.freeVideoUsed ===
-            false
-              ? {
-                  freeVideoUsed: true,
-                }
+            ...(contact.freeVideoUsed === false
+              ? { freeVideoUsed: true }
               : {}),
-
             pendingImagePath: undefined,
             pendingImageMime: undefined,
           },
@@ -187,9 +174,7 @@ export class GenerationWorkerService
       await this.tick();
     } catch (error) {
       this.logger.error(
-        `Generation worker tick failed: ${errorMessage(
-          error,
-        )}`,
+        `Generation worker tick failed: ${errorMessage(error)}`,
       );
     }
   }
@@ -206,21 +191,15 @@ export class GenerationWorkerService
     );
 
     try {
-      await this.dataStore.updateJob(
-        job.id,
-        {
-          status: 'failed',
-          errorMessage:
-            message.slice(0, 2000),
-        },
-      );
+      await this.dataStore.updateJob(job.id, {
+        status: 'failed',
+        errorMessage: message.slice(0, 2000),
+      });
     } catch (updateError) {
       this.logger.error(
-        `Could not mark generation job ${
-          job.id
-        } as failed: ${errorMessage(
-          updateError,
-        )}`,
+        `Could not mark generation job ` +
+          `${job.id} as failed: ` +
+          errorMessage(updateError),
       );
     }
 
@@ -233,11 +212,9 @@ export class GenerationWorkerService
       );
     } catch (updateError) {
       this.logger.error(
-        `Could not reset contact ${
-          contact.id
-        } after generation failure: ${errorMessage(
-          updateError,
-        )}`,
+        `Could not reset contact ` +
+          `${contact.id} after generation failure: ` +
+          errorMessage(updateError),
       );
     }
 
@@ -251,24 +228,19 @@ export class GenerationWorkerService
   private publicFailureMessage(
     error: unknown,
   ): string {
-    if (
-      error instanceof
-      ExternalServiceError
-    ) {
+    if (error instanceof ExternalServiceError) {
       if (
-        error.code ===
-        'insufficient_credits'
+        error.code === 'insufficient_credits'
       ) {
         return [
           'Video hazırlana bilmədi ❌',
-          'Video xidməti hazırda müvəqqəti əlçatan deyil. Bir az sonra yenidən yoxlayın.',
-          'Şəkliniz saxlanılıb; yenidən yalnız təsviri göndərə bilərsiniz.',
+          'Video xidməti hazırda müvəqqəti əlçatan deyil.',
+          'Bir neçə dəqiqə sonra yenidən yoxlayın.',
+          'Şəkliniz saxlanılıb; yalnız təsviri yenidən göndərməyiniz kifayətdir.',
         ].join('\n');
       }
 
-      if (
-        error.code === 'invalid_request'
-      ) {
+      if (error.code === 'invalid_request') {
         return [
           'Video hazırlana bilmədi ❌',
           'Şəkil və ya yazdığınız təsvir video xidməti tərəfindən qəbul edilmədi.',
@@ -276,9 +248,7 @@ export class GenerationWorkerService
         ].join('\n');
       }
 
-      if (
-        error.code === 'rate_limited'
-      ) {
+      if (error.code === 'rate_limited') {
         return [
           'Video hazırlana bilmədi ❌',
           'Video xidməti hazırda çox yüklənib. Bir neçə dəqiqə sonra yenidən yoxlayın.',
@@ -312,23 +282,19 @@ export class GenerationWorkerService
           type: 'text',
           content: {
             text,
-            event:
-              'video-generation-failed',
+            event: 'video-generation-failed',
           },
           status: 'sent',
         });
       } catch (error) {
         this.logger.error(
-          `Failure message was sent but could not be recorded: ${errorMessage(
-            error,
-          )}`,
+          'Failure message was sent but could not be recorded: ' +
+            errorMessage(error),
         );
       }
     } catch (error) {
       this.logger.error(
-        `Could not send failure message: ${errorMessage(
-          error,
-        )}`,
+        `Could not send failure message: ${errorMessage(error)}`,
       );
     }
 
@@ -338,8 +304,7 @@ export class GenerationWorkerService
     );
   }
 
-  private async recoverStaleJobs():
-    Promise<void> {
+  private async recoverStaleJobs(): Promise<void> {
     const staleMs =
       this.config.get<number>(
         'GENERATION_STALE_MS',
@@ -361,16 +326,15 @@ export class GenerationWorkerService
           job.contactId,
         );
 
-      await this.dataStore.updateJob(
-        job.id,
-        {
-          status: 'failed',
-          errorMessage:
-            'Generation timed out or worker restarted',
-        },
-      );
+      await this.dataStore.updateJob(job.id, {
+        status: 'failed',
+        errorMessage:
+          'Generation timed out or worker restarted',
+      });
 
-      if (!contact) continue;
+      if (!contact) {
+        continue;
+      }
 
       await this.dataStore.updateContact(
         contact.id,
@@ -412,9 +376,7 @@ export class GenerationWorkerService
       });
     } catch (error) {
       this.logger.warn(
-        `Could not send quick actions: ${errorMessage(
-          error,
-        )}`,
+        `Could not send quick actions: ${errorMessage(error)}`,
       );
     }
   }
