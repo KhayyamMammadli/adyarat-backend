@@ -3,7 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import RunwayML, { APIError } from '@runwayml/sdk';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { errorMessage, ExternalServiceError } from '../common/errors';
+import {
+  errorMessage,
+  ExternalServiceError,
+} from '../common/errors';
 
 export interface VideoGenerationInput {
   image: Buffer;
@@ -19,10 +22,16 @@ export interface VideoGenerationResult {
 
 @Injectable()
 export class VideoProviderService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+  ) {}
 
-  async generate(input: VideoGenerationInput): Promise<VideoGenerationResult> {
-    const provider = this.config.get<string>('VIDEO_PROVIDER') ?? 'mock';
+  async generate(
+    input: VideoGenerationInput,
+  ): Promise<VideoGenerationResult> {
+    const provider =
+      this.config.get<string>('VIDEO_PROVIDER') ??
+      'mock';
 
     if (provider === 'runway') {
       return this.generateWithRunway(input);
@@ -33,10 +42,13 @@ export class VideoProviderService {
 
   private async generateMock(): Promise<VideoGenerationResult> {
     const configuredPath =
-      this.config.get<string>('MOCK_VIDEO_PATH') ?? 'assets/mock-video.mp4';
+      this.config.get<string>('MOCK_VIDEO_PATH') ??
+      'assets/mock-video.mp4';
 
     return {
-      bytes: await readFile(resolve(process.cwd(), configuredPath)),
+      bytes: await readFile(
+        resolve(process.cwd(), configuredPath),
+      ),
       mimeType: 'video/mp4',
       providerJobId: `mock-${Date.now()}`,
     };
@@ -45,24 +57,35 @@ export class VideoProviderService {
   private async generateWithRunway(
     input: VideoGenerationInput,
   ): Promise<VideoGenerationResult> {
-    const apiKey = this.config.get<string>('RUNWAYML_API_SECRET');
+    const apiKey = this.config.get<string>(
+      'RUNWAYML_API_SECRET',
+    );
 
     if (!apiKey) {
-      throw new Error('RUNWAYML_API_SECRET is not configured');
+      throw new Error(
+        'RUNWAYML_API_SECRET is not configured',
+      );
     }
 
     const client = new RunwayML({ apiKey });
 
     const promptImage =
-      `data:${input.imageMimeType};base64,${input.image.toString('base64')}`;
+      `data:${input.imageMimeType};base64,` +
+      input.image.toString('base64');
 
-    const model = this.config.get<string>('RUNWAY_MODEL') ?? 'gen4.5';
+    const model =
+      this.config.get<string>('RUNWAY_MODEL') ??
+      'gen4.5';
 
     if (model !== 'gen4.5') {
-      throw new Error('This backend currently supports RUNWAY_MODEL=gen4.5');
+      throw new Error(
+        'This backend currently supports RUNWAY_MODEL=gen4.5',
+      );
     }
 
-    const ratio = this.config.get<string>('RUNWAY_RATIO') ?? '720:1280';
+    const ratio =
+      this.config.get<string>('RUNWAY_RATIO') ??
+      '720:1280';
 
     const allowedRatios = [
       '1280:720',
@@ -73,20 +96,42 @@ export class VideoProviderService {
       '1584:672',
     ] as const;
 
-    if (!allowedRatios.includes(ratio as (typeof allowedRatios)[number])) {
-      throw new Error(`Unsupported RUNWAY_RATIO: ${ratio}`);
+    if (
+      !allowedRatios.includes(
+        ratio as (typeof allowedRatios)[number],
+      )
+    ) {
+      throw new Error(
+        `Unsupported RUNWAY_RATIO: ${ratio}`,
+      );
     }
 
     try {
-      const task = await client.imageToVideo
-        .create({
+      const taskRequest =
+        client.imageToVideo.create({
           model,
           promptImage,
           promptText: input.prompt,
-          duration: this.config.get<number>('RUNWAY_DURATION') ?? 5,
-          ratio: ratio as (typeof allowedRatios)[number],
-        })
-        .waitForTaskOutput();
+          duration:
+            this.config.get<number>(
+              'RUNWAY_DURATION',
+            ) ?? 5,
+          ratio:
+            ratio as (typeof allowedRatios)[number],
+        });
+
+      /*
+       * Runway kredit xətasını dərhal tuturuq.
+       *
+       * SDK video statusunu yoxlamazdan əvvəl gözləyir.
+       * API həmin müddətdə dərhal xəta qaytarsa,
+       * promise unhandled rejection ola və serveri
+       * restart edə bilər.
+       */
+      await taskRequest;
+
+      const task =
+        await taskRequest.waitForTaskOutput();
 
       const outputUrl = task.output?.[0];
 
@@ -111,7 +156,9 @@ export class VideoProviderService {
       }
 
       return {
-        bytes: Buffer.from(await response.arrayBuffer()),
+        bytes: Buffer.from(
+          await response.arrayBuffer(),
+        ),
         mimeType: 'video/mp4',
         providerJobId: task.id,
       };
@@ -124,13 +171,27 @@ export class VideoProviderService {
     }
   }
 
-  private normalizeRunwayError(error: unknown): ExternalServiceError {
-    const status = error instanceof APIError ? error.status : undefined;
-    const details = error instanceof APIError ? error.error : error;
-    const message = `${errorMessage(error)} ${this.stringify(details)}`;
+  private normalizeRunwayError(
+    error: unknown,
+  ): ExternalServiceError {
+    const status =
+      error instanceof APIError
+        ? error.status
+        : undefined;
+
+    const details =
+      error instanceof APIError
+        ? error.error
+        : error;
+
+    const message =
+      `${errorMessage(error)} ` +
+      this.stringify(details);
 
     if (
-      /not enough credits|insufficient credits|credit balance/i.test(message)
+      /not enough credits|insufficient credits|credit balance/i.test(
+        message,
+      )
     ) {
       return new ExternalServiceError(
         'Runway account does not have enough credits',
