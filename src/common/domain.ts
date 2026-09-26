@@ -26,6 +26,7 @@ export interface Contact {
   waId: string;
   profileName?: string;
   state: ContactState;
+  freeVideoUsed?: boolean;
   pendingImagePath?: string;
   pendingImageMime?: string;
   createdAt: string;
