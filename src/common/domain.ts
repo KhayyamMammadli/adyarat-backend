@@ -1,6 +1,8 @@
 export type ContactState =
   | 'new'
   | 'awaiting_prompt'
+  | 'awaiting_ad_copy_brief'
+  | 'awaiting_voice_ad_brief'
   | 'processing';
 
 export type JobStatus =
@@ -73,6 +75,7 @@ export interface MessageRecord {
   status: string;
 }
 
-export interface ConversationMessage extends MessageRecord {
+export interface ConversationMessage
+  extends MessageRecord {
   createdAt: string;
 }
