@@ -19,10 +19,12 @@ function entities() {
       createdAt: now,
       updatedAt: now,
     },
+
     contact: {
       id: 'contact-1',
       waId: '994501234567',
       state: 'processing',
+      freeVideoUsed: false,
       pendingImagePath: 'inputs/demo.jpg',
       pendingImageMime: 'image/jpeg',
       createdAt: now,
@@ -31,263 +33,241 @@ function entities() {
   };
 }
 
-test(
-  'completed generation sends the video, clears the flow and shows quick actions',
-  async () => {
-    const { job, contact } = entities();
+test('completed generation sends the video, clears the flow and shows quick actions', async () => {
+  const { job, contact } = entities();
 
-    const jobUpdates = [];
-    const contactUpdates = [];
-    const storedMedia = [];
-    const sentVideos = [];
-    const quickActions = [];
-    const recordedMessages = [];
+  const jobUpdates = [];
+  const contactUpdates = [];
+  const storedMedia = [];
+  const sentVideos = [];
+  const quickActions = [];
+  const recordedMessages = [];
 
-    let claimed = false;
+  let claimed = false;
 
-    const dataStore = {
-      getStaleProcessingJobs: async () => [],
+  const dataStore = {
+    getStaleProcessingJobs: async () => [],
 
-      claimNextJob: async () => {
-        if (claimed) return undefined;
+    claimNextJob: async () => {
+      if (claimed) {
+        return undefined;
+      }
 
-        claimed = true;
-        return job;
-      },
+      claimed = true;
+      return job;
+    },
 
-      getContactById: async () => contact,
+    getContactById: async () => contact,
 
-      updateJob: async (_id, patch) => {
-        jobUpdates.push(patch);
-        return { ...job, ...patch };
-      },
+    updateJob: async (_id, patch) => {
+      jobUpdates.push(patch);
+      return { ...job, ...patch };
+    },
 
-      updateContact: async (_id, patch) => {
-        contactUpdates.push(patch);
-        return { ...contact, ...patch };
-      },
+    updateContact: async (_id, patch) => {
+      contactUpdates.push(patch);
+      return { ...contact, ...patch };
+    },
 
-      recordMessage: async (message) => {
-        recordedMessages.push(message);
-        return true;
-      },
-    };
+    recordMessage: async (message) => {
+      recordedMessages.push(message);
+      return true;
+    },
+  };
 
-    const mediaStore = {
-      get: async () => Buffer.from('image'),
+  const mediaStore = {
+    get: async () => Buffer.from('image'),
 
-      put: async (path, bytes, mimeType) => {
-        storedMedia.push({
-          path,
-          bytes,
-          mimeType,
-        });
-      },
-    };
+    put: async (path, bytes, mimeType) => {
+      storedMedia.push({
+        path,
+        bytes,
+        mimeType,
+      });
+    },
+  };
 
-    const whatsapp = {
-      sendVideo: async (waId, bytes, caption) => {
-        sentVideos.push({
-          waId,
-          bytes,
-          caption,
-        });
+  const whatsapp = {
+    sendVideo: async (waId, bytes, caption) => {
+      sentVideos.push({
+        waId,
+        bytes,
+        caption,
+      });
 
-        return 'video-message-id';
-      },
+      return 'video-message-id';
+    },
 
-      sendQuickActions: async (waId) => {
-        quickActions.push(waId);
-        return 'quick-actions-message-id';
-      },
-    };
+    sendQuickActions: async (waId) => {
+      quickActions.push(waId);
+      return 'quick-actions-message-id';
+    },
+  };
 
-    const provider = {
-      generate: async () => ({
-        bytes: Buffer.from('video'),
-        mimeType: 'video/mp4',
-        providerJobId: 'runway-task-1',
-      }),
-    };
+  const provider = {
+    generate: async () => ({
+      bytes: Buffer.from('video'),
+      mimeType: 'video/mp4',
+      providerJobId: 'runway-task-1',
+    }),
+  };
 
-    const worker = new GenerationWorkerService(
-      new ConfigService({}),
-      dataStore,
-      mediaStore,
-      whatsapp,
-      provider,
-    );
+  const worker = new GenerationWorkerService(
+    new ConfigService({}),
+    dataStore,
+    mediaStore,
+    whatsapp,
+    provider,
+  );
 
-    await worker.tick();
+  await worker.tick();
 
-    assert.equal(storedMedia.length, 1);
+  assert.equal(storedMedia.length, 1);
+  assert.equal(
+    storedMedia[0].path,
+    'outputs/994501234567/job-1.mp4',
+  );
+  assert.equal(storedMedia[0].mimeType, 'video/mp4');
 
-    assert.equal(
-      storedMedia[0].path,
-      'outputs/994501234567/job-1.mp4',
-    );
+  assert.equal(sentVideos.length, 1);
+  assert.equal(sentVideos[0].waId, '994501234567');
+  assert.match(sentVideos[0].caption, /Videonuz hazırdır/);
 
-    assert.equal(
-      storedMedia[0].mimeType,
-      'video/mp4',
-    );
+  assert.equal(jobUpdates.at(-1).status, 'completed');
+  assert.equal(
+    jobUpdates.at(-1).providerJobId,
+    'runway-task-1',
+  );
 
-    assert.equal(sentVideos.length, 1);
+  assert.deepEqual(contactUpdates.at(-1), {
+    state: 'new',
+    freeVideoUsed: true,
+    pendingImagePath: undefined,
+    pendingImageMime: undefined,
+  });
 
-    assert.equal(
-      sentVideos[0].waId,
-      '994501234567',
-    );
+  assert.deepEqual(quickActions, [
+    '994501234567',
+  ]);
 
-    assert.match(
-      sentVideos[0].caption,
-      /Videonuz hazırdır/,
-    );
+  assert.deepEqual(
+    recordedMessages.map((message) => message.type),
+    ['video', 'interactive'],
+  );
+});
 
-    assert.equal(
-      jobUpdates.at(-1).status,
-      'completed',
-    );
+test('generation failure marks the job failed and notifies the WhatsApp user', async () => {
+  const { job, contact } = entities();
 
-    assert.equal(
-      jobUpdates.at(-1).providerJobId,
-      'runway-task-1',
-    );
+  const jobUpdates = [];
+  const contactUpdates = [];
+  const sentTexts = [];
+  const quickActions = [];
+  const recordedMessages = [];
 
-    assert.deepEqual(contactUpdates.at(-1), {
-      state: 'new',
-      pendingImagePath: undefined,
-      pendingImageMime: undefined,
-    });
+  let claimed = false;
 
-    assert.deepEqual(
-      quickActions,
-      ['994501234567'],
-    );
+  const dataStore = {
+    getStaleProcessingJobs: async () => [],
 
-    assert.deepEqual(
-      recordedMessages.map(
-        (message) => message.type,
-      ),
-      ['video', 'interactive'],
-    );
-  },
-);
+    claimNextJob: async () => {
+      if (claimed) {
+        return undefined;
+      }
 
-test(
-  'generation failure marks the job failed and notifies the WhatsApp user',
-  async () => {
-    const { job, contact } = entities();
+      claimed = true;
+      return job;
+    },
 
-    const jobUpdates = [];
-    const contactUpdates = [];
-    const sentTexts = [];
-    const quickActions = [];
-    const recordedMessages = [];
+    getContactById: async () => contact,
 
-    let claimed = false;
+    updateJob: async (_id, patch) => {
+      jobUpdates.push(patch);
+      return { ...job, ...patch };
+    },
 
-    const dataStore = {
-      getStaleProcessingJobs: async () => [],
+    updateContact: async (_id, patch) => {
+      contactUpdates.push(patch);
+      return { ...contact, ...patch };
+    },
 
-      claimNextJob: async () => {
-        if (claimed) return undefined;
+    recordMessage: async (message) => {
+      recordedMessages.push(message);
+      return true;
+    },
+  };
 
-        claimed = true;
-        return job;
-      },
+  const mediaStore = {
+    get: async () => Buffer.from('image'),
+  };
 
-      getContactById: async () => contact,
+  const whatsapp = {
+    sendText: async (_waId, text) => {
+      sentTexts.push(text);
+      return 'failure-message-id';
+    },
 
-      updateJob: async (_id, patch) => {
-        jobUpdates.push(patch);
-        return { ...job, ...patch };
-      },
+    sendQuickActions: async (waId) => {
+      quickActions.push(waId);
+      return 'quick-actions-message-id';
+    },
+  };
 
-      updateContact: async (_id, patch) => {
-        contactUpdates.push(patch);
-        return { ...contact, ...patch };
-      },
+  const provider = {
+    generate: async () => {
+      throw new ExternalServiceError(
+        'Runway account does not have enough credits',
+        400,
+        {
+          error: 'You do not have enough credits to run this task.',
+        },
+        'insufficient_credits',
+      );
+    },
+  };
 
-      recordMessage: async (message) => {
-        recordedMessages.push(message);
-        return true;
-      },
-    };
+  const worker = new GenerationWorkerService(
+    new ConfigService({}),
+    dataStore,
+    mediaStore,
+    whatsapp,
+    provider,
+  );
 
-    const mediaStore = {
-      get: async () => Buffer.from('image'),
-    };
+  await worker.tick();
 
-    const whatsapp = {
-      sendText: async (_waId, text) => {
-        sentTexts.push(text);
-        return 'failure-message-id';
-      },
+  assert.equal(jobUpdates.at(-1).status, 'failed');
+  assert.equal(
+    contactUpdates.at(-1).state,
+    'awaiting_prompt',
+  );
 
-      sendQuickActions: async (waId) => {
-        quickActions.push(waId);
-        return 'quick-actions-message-id';
-      },
-    };
+  assert.equal(
+    contactUpdates.at(-1).freeVideoUsed,
+    undefined,
+  );
 
-    const provider = {
-      generate: async () => {
-        throw new ExternalServiceError(
-          'Runway account does not have enough credits',
-          400,
-          {
-            error:
-              'You do not have enough credits to run this task.',
-          },
-          'insufficient_credits',
-        );
-      },
-    };
+  assert.match(
+    sentTexts[0],
+    /Video hazırlana bilmədi/,
+  );
 
-    const worker = new GenerationWorkerService(
-      new ConfigService({}),
-      dataStore,
-      mediaStore,
-      whatsapp,
-      provider,
-    );
+  assert.match(
+    sentTexts[0],
+    /müvəqqəti əlçatan deyil/,
+  );
 
-    await worker.tick();
+  assert.deepEqual(quickActions, [
+    '994501234567',
+  ]);
 
-    assert.equal(
-      jobUpdates.at(-1).status,
-      'failed',
-    );
+  assert.equal(
+    recordedMessages[0].content.event,
+    'video-generation-failed',
+  );
 
-    assert.equal(
-      contactUpdates.at(-1).state,
-      'awaiting_prompt',
-    );
-
-    assert.match(
-      sentTexts[0],
-      /Video hazırlana bilmədi/,
-    );
-
-    assert.match(
-      sentTexts[0],
-      /müvəqqəti əlçatan deyil/,
-    );
-
-    assert.deepEqual(
-      quickActions,
-      ['994501234567'],
-    );
-
-    assert.equal(
-      recordedMessages[0].content.event,
-      'video-generation-failed',
-    );
-
-    assert.equal(
-      recordedMessages[1].content.menu,
-      'quick-actions',
-    );
-  },
-);
+  assert.equal(
+    recordedMessages[1].content.menu,
+    'quick-actions',
+  );
+});
