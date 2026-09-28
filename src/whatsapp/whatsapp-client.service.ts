@@ -299,6 +299,85 @@ async sendVideoDurationMenu(
   return messageId;
 }
 
+
+
+async sendVideoDurationMenuPage2(
+  to: string,
+): Promise<string> {
+  const durations = [
+    100,
+    110,
+    120,
+    130,
+    140,
+    150,
+    160,
+    170,
+    180,
+  ];
+
+  const response =
+    await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'interactive',
+          interactive: {
+            type: 'list',
+            body: {
+              text: [
+                '🎬 Uzun video müddətini seçin.',
+                '',
+                '100–180 saniyə',
+              ].join('\n'),
+            },
+            footer: {
+              text: 'AdYarat',
+            },
+            action: {
+              button: 'Müddəti seç',
+              sections: [
+                {
+                  title: 'Uzun video',
+                  rows: durations.map(
+                    (duration) => ({
+                      id: `video_duration_${duration}`,
+                      title: `${duration} saniyə`,
+                      description:
+                        duration === 180
+                          ? '18 səhnə • 3 dəqiqə'
+                          : `${duration / 10} səhnə`,
+                    }),
+                  ),
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+  const messageId =
+    response.messages?.[0]?.id;
+
+  if (!messageId) {
+    throw new ExternalServiceError(
+      'Meta did not return a message id',
+      502,
+      response,
+    );
+  }
+
+  return messageId;
+}
+
   async sendAudio(
     to: string,
     bytes: Buffer,
