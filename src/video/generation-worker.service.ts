@@ -98,10 +98,10 @@ export class GenerationWorkerService
       }
 
       try {
-        if (
-          job.videoMode === 'long' ||
-          job.targetDurationSeconds === 60
-        ) {
+         if (
+              job.videoMode === 'long' ||
+              (job.targetDurationSeconds ?? 10) > 10
+            ) {
           await this.processLongVideo(
             job,
             contact,
@@ -167,8 +167,14 @@ export class GenerationWorkerService
     job: GenerationJob,
     contact: Contact,
   ): Promise<void> {
-    const sceneCount =
-      job.sceneCount ?? 6;
+   const sceneCount =
+  job.sceneCount ??
+  Math.max(
+    1,
+    Math.ceil(
+      (job.targetDurationSeconds ?? 10) / 10,
+    ),
+  );
 
     await this.dataStore.updateJob(
       job.id,
@@ -326,18 +332,21 @@ export class GenerationWorkerService
     outputPath: string,
     providerJobId?: string,
   ): Promise<void> {
+    const targetDuration =
+      job.targetDurationSeconds ?? 10;
+    
     const isLongVideo =
       job.videoMode === 'long' ||
-      job.targetDurationSeconds === 60;
+      targetDuration > 10;
 
     const messageId =
       await this.whatsapp.sendVideo(
         contact.waId,
         bytes,
         [
-          isLongVideo
-            ? '60 saniyəlik videonuz hazırdır 🎬'
-            : 'Videonuz hazırdır 🎬',
+         isLongVideo
+            ? `${targetDuration} saniyəlik videonuz hazırdır 🎬`
+            : '10 saniyəlik videonuz hazırdır 🎬',
           'AdYarat ilə hazırlanıb.',
         ].join('\n'),
       );
