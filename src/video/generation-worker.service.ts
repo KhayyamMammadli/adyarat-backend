@@ -21,7 +21,9 @@ import { VideoProviderService } from './video-provider.service';
 
 @Injectable()
 export class GenerationWorkerService
-  implements OnModuleInit, OnApplicationShutdown
+  implements
+    OnModuleInit,
+    OnApplicationShutdown
 {
   private readonly logger = new Logger(
     GenerationWorkerService.name,
@@ -98,10 +100,11 @@ export class GenerationWorkerService
       }
 
       try {
-         if (
-              job.videoMode === 'long' ||
-              (job.targetDurationSeconds ?? 10) > 10
-            ) {
+        if (
+          job.videoMode === 'long' ||
+          (job.targetDurationSeconds ?? 10) >
+            10
+        ) {
           await this.processLongVideo(
             job,
             contact,
@@ -167,14 +170,15 @@ export class GenerationWorkerService
     job: GenerationJob,
     contact: Contact,
   ): Promise<void> {
-   const sceneCount =
-  job.sceneCount ??
-  Math.max(
-    1,
-    Math.ceil(
-      (job.targetDurationSeconds ?? 10) / 10,
-    ),
-  );
+    const sceneCount =
+      job.sceneCount ??
+      Math.max(
+        1,
+        Math.ceil(
+          (job.targetDurationSeconds ??
+            10) / 10,
+        ),
+      );
 
     await this.dataStore.updateJob(
       job.id,
@@ -234,76 +238,13 @@ export class GenerationWorkerService
             index,
         );
 
-     const scenePrompt =
+      const scenePrompt =
         plannedScene?.prompt ??
         this.buildScenePrompt(
           job.prompt,
           index,
           sceneCount,
         );
-
-      private buildScenePrompt(
-  basePrompt: string,
-  sceneIndex: number,
-  sceneCount: number,
-): string {
-  const sceneDirections = [
-    'Cinematic establishing shot. Introduce the product or business and its environment. Smooth camera movement, premium commercial look.',
-
-    'Medium shot focused on the product being used naturally. Show the main action clearly. Dynamic but elegant camera movement.',
-
-    'Extreme close-up product detail shot. Highlight texture, material, steam, light reflections or important visual details.',
-
-    'Lifestyle scene with a person naturally interacting with the product. Authentic emotion, premium advertising style.',
-
-    'Show the main benefit of the product visually. Make the advantage easy to understand without relying on text.',
-
-    'Hero product shot. Product centered beautifully with cinematic lighting, shallow depth of field and premium composition.',
-
-    'Different camera angle and location while keeping the same visual identity. Add visual variety to the commercial.',
-
-    'Slow cinematic tracking shot. Show the product in motion or demonstrate how it works.',
-
-    'Emotional lifestyle moment connected to the product. Natural human reaction and visually attractive environment.',
-
-    'Macro detail shot with dramatic lighting. Focus on the strongest visual feature of the product.',
-
-    'Wide cinematic scene showing the product in its real environment. Professional commercial photography style.',
-
-    'Dynamic advertising scene. Faster camera movement while preserving premium cinematic quality.',
-
-    'Show another important use case or benefit of the product. Make this scene clearly different from previous scenes.',
-
-    'Elegant close-up with slow camera push-in. Premium lighting and strong visual focus on the brand or product.',
-
-    'Lifestyle scene from a new perspective. Natural movement, realistic environment and commercial quality.',
-
-    'Final product showcase. Make the product look desirable, polished and premium.',
-
-    'Brand-focused closing scene. Leave clean visual space where a logo or call-to-action could later be added.',
-
-    'Strong cinematic ending shot. Product hero composition, memorable lighting and polished commercial finish.',
-  ];
-
-  const direction =
-    sceneDirections[
-      sceneIndex %
-        sceneDirections.length
-    ];
-
-  return [
-    basePrompt,
-    '',
-    `Scene ${sceneIndex + 1} of ${sceneCount}.`,
-    direction,
-    '',
-    'IMPORTANT:',
-    'This scene must look visually different from the previous scenes.',
-    'Keep the same product identity and overall advertising style.',
-    'Do not add random text, logos or watermarks.',
-    'Create a professional cinematic advertisement.',
-  ].join('\n');
-}
 
       this.logger.log(
         `Generating scene ${index + 1}/${sceneCount} ` +
@@ -395,7 +336,7 @@ export class GenerationWorkerService
   ): Promise<void> {
     const targetDuration =
       job.targetDurationSeconds ?? 10;
-    
+
     const isLongVideo =
       job.videoMode === 'long' ||
       targetDuration > 10;
@@ -405,7 +346,7 @@ export class GenerationWorkerService
         contact.waId,
         bytes,
         [
-         isLongVideo
+          isLongVideo
             ? `${targetDuration} saniyəlik videonuz hazırdır 🎬`
             : '10 saniyəlik videonuz hazırdır 🎬',
           'AdYarat ilə hazırlanıb.',
@@ -487,7 +428,9 @@ export class GenerationWorkerService
       await this.tick();
     } catch (error) {
       this.logger.error(
-        `Generation worker tick failed: ${errorMessage(error)}`,
+        `Generation worker tick failed: ${errorMessage(
+          error,
+        )}`,
       );
     }
   }
@@ -636,7 +579,9 @@ export class GenerationWorkerService
       }
     } catch (error) {
       this.logger.error(
-        `Could not send failure message: ${errorMessage(error)}`,
+        `Could not send failure message: ${errorMessage(
+          error,
+        )}`,
       );
     }
 
@@ -704,6 +649,69 @@ export class GenerationWorkerService
     }
   }
 
+  private buildScenePrompt(
+    basePrompt: string,
+    sceneIndex: number,
+    sceneCount: number,
+  ): string {
+    const sceneDirections = [
+      'Cinematic establishing shot. Introduce the product or business and its environment. Smooth camera movement, premium commercial look.',
+
+      'Medium shot focused on the product being used naturally. Show the main action clearly. Dynamic but elegant camera movement.',
+
+      'Extreme close-up product detail shot. Highlight texture, material, steam, light reflections or important visual details.',
+
+      'Lifestyle scene with a person naturally interacting with the product. Authentic emotion, premium advertising style.',
+
+      'Show the main benefit of the product visually. Make the advantage easy to understand without relying on text.',
+
+      'Hero product shot. Product centered beautifully with cinematic lighting, shallow depth of field and premium composition.',
+
+      'Different camera angle and location while keeping the same visual identity. Add visual variety to the commercial.',
+
+      'Slow cinematic tracking shot. Show the product in motion or demonstrate how it works.',
+
+      'Emotional lifestyle moment connected to the product. Natural human reaction and visually attractive environment.',
+
+      'Macro detail shot with dramatic lighting. Focus on the strongest visual feature of the product.',
+
+      'Wide cinematic scene showing the product in its real environment. Professional commercial photography style.',
+
+      'Dynamic advertising scene. Faster camera movement while preserving premium cinematic quality.',
+
+      'Show another important use case or benefit of the product. Make this scene clearly different from previous scenes.',
+
+      'Elegant close-up with slow camera push-in. Premium lighting and strong visual focus on the brand or product.',
+
+      'Lifestyle scene from a new perspective. Natural movement, realistic environment and commercial quality.',
+
+      'Final product showcase. Make the product look desirable, polished and premium.',
+
+      'Brand-focused closing scene. Leave clean visual space where a logo or call-to-action could later be added.',
+
+      'Strong cinematic ending shot. Product hero composition, memorable lighting and polished commercial finish.',
+    ];
+
+    const direction =
+      sceneDirections[
+        sceneIndex %
+          sceneDirections.length
+      ];
+
+    return [
+      basePrompt,
+      '',
+      `Scene ${sceneIndex + 1} of ${sceneCount}.`,
+      direction,
+      '',
+      'IMPORTANT:',
+      'This scene must look visually different from the previous scenes.',
+      'Keep the same product identity and overall advertising style.',
+      'Do not add random text, logos or watermarks.',
+      'Create a professional cinematic advertisement.',
+    ].join('\n');
+  }
+
   private async sendQuickActions(
     contactId: string,
     waId: string,
@@ -731,7 +739,9 @@ export class GenerationWorkerService
       });
     } catch (error) {
       this.logger.warn(
-        `Could not send quick actions: ${errorMessage(error)}`,
+        `Could not send quick actions: ${errorMessage(
+          error,
+        )}`,
       );
     }
   }
