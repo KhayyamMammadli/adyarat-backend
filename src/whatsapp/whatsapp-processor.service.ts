@@ -1142,140 +1142,135 @@ if (choiceId.startsWith('video_duration_')) {
   }
 
   private async createVideoJob(
-    contact: Contact,
-    rawText: string,
-  ): Promise<void> {
-    if (!(await this.ensureVideoAccess(contact))) {
-      return;
-    }
+  contact: Contact,
+  rawText: string,
+): Promise<void> {
+  if (!(await this.ensureVideoAccess(contact))) {
+    return;
+  }
 
-    const maxLength =
-      this.config.get<number>(
-        'MAX_PROMPT_LENGTH',
-      ) ?? 1000;
+  const maxLength =
+    this.config.get<number>(
+      'MAX_PROMPT_LENGTH',
+    ) ?? 1000;
 
-    if (rawText.length < 5) {
-      await this.reply(
-        contact,
-        'Təsviri bir az daha ətraflı yazın — minimum 5 simvol.',
-      );
-      return;
-    }
-
-    if (rawText.length > maxLength) {
-      await this.reply(
-        contact,
-        `Təsvir maksimum ${maxLength} simvol ola bilər.`,
-      );
-      return;
-    }
-
-    if (
-      await this.dataStore.hasActiveJob(
-        contact.id,
-      )
-    ) {
-      await this.reply(
-        contact,
-        'Hazırda əvvəlki videonuz hazırlanır. Nəticəni gözləyin.',
-      );
-      return;
-    }
-
-    if (!contact.pendingImagePath) {
-      await this.reply(
-        contact,
-        'Video üçün əvvəlcə məhsul şəklini göndərin.',
-      );
-      return;
-    }
-
-    const selectedDuration =
-      contact.selectedVideoDurationSeconds ??
-      10;
-
-    const isLongVideo =
-      selectedDuration === 60;
-
-    const prompt =
-      await this.ai.enhanceVideoPrompt(
-        rawText,
-      );
-
-    await this.dataStore.createJob({
-      contactId: contact.id,
-
-      provider:
-        this.config.get<string>(
-          'VIDEO_PROVIDER',
-        ) ?? 'mock',
-
-      prompt,
-
-      inputStoragePath:
-        contact.pendingImagePath,
-
-      inputMimeType:
-        contact.pendingImageMime ??
-        'image/jpeg',
-
-      videoMode:
-        isLongVideo
-          ? 'long'
-          : 'single',
-
-      targetDurationSeconds:
-        isLongVideo
-          ? 60
-          : 10,
-
-      sceneCount:
-        isLongVideo
-          ? 6
-          : 1,
-
-      sourceImagePaths:
-        contact.pendingImagePaths?.length
-          ? contact.pendingImagePaths
-          : [
-              contact.pendingImagePath,
-            ],
-
-      sourceImageMimes:
-        contact.pendingImageMimes?.length
-          ? contact.pendingImageMimes
-          : [
-              contact.pendingImageMime ??
-                'image/jpeg',
-            ],
-    });
-
-    await this.dataStore.updateContact(
-      contact.id,
-      {
-        state: 'processing',
-      },
-    );
-
+  if (rawText.length < 5) {
     await this.reply(
       contact,
-      isLongVideo
-        ? [
-            'Sorğunuz qəbul edildi 🎬',
-            '',
-            '60 saniyəlik reklam hazırlanır.',
-            'Video 6 ayrı səhnə kimi yaradılıb avtomatik birləşdiriləcək.',
-            '',
-            'Hazır olduqda bu söhbətə göndərəcəyəm.',
-          ].join('\n')
-        : [
-            'Sorğunuz qəbul edildi 🎬',
-            '',
-            '10 saniyəlik video hazırlanır.',
-            'Hazır olduqda bu söhbətə göndərəcəyəm.',
-          ].join('\n'),
+      'Təsviri bir az daha ətraflı yazın — minimum 5 simvol.',
     );
+    return;
   }
+
+  if (rawText.length > maxLength) {
+    await this.reply(
+      contact,
+      `Təsvir maksimum ${maxLength} simvol ola bilər.`,
+    );
+    return;
+  }
+
+  if (
+    await this.dataStore.hasActiveJob(
+      contact.id,
+    )
+  ) {
+    await this.reply(
+      contact,
+      'Hazırda əvvəlki videonuz hazırlanır. Nəticəni gözləyin.',
+    );
+    return;
+  }
+
+  if (!contact.pendingImagePath) {
+    await this.reply(
+      contact,
+      'Video üçün əvvəlcə məhsul şəklini göndərin.',
+    );
+    return;
+  }
+
+  const selectedDuration =
+    contact.selectedVideoDurationSeconds ?? 10;
+
+  const sceneCount =
+    Math.max(
+      1,
+      Math.ceil(
+        selectedDuration / 10,
+      ),
+    );
+
+  const isLongVideo =
+    selectedDuration > 10;
+
+  const prompt =
+    await this.ai.enhanceVideoPrompt(
+      rawText,
+    );
+
+  await this.dataStore.createJob({
+    contactId: contact.id,
+
+    provider:
+      this.config.get<string>(
+        'VIDEO_PROVIDER',
+      ) ?? 'mock',
+
+    prompt,
+
+    inputStoragePath:
+      contact.pendingImagePath,
+
+    inputMimeType:
+      contact.pendingImageMime ??
+      'image/jpeg',
+
+    videoMode:
+      isLongVideo
+        ? 'long'
+        : 'single',
+
+    targetDurationSeconds:
+      selectedDuration,
+
+    sceneCount,
+
+    sourceImagePaths:
+      contact.pendingImagePaths?.length
+        ? contact.pendingImagePaths
+        : [
+            contact.pendingImagePath,
+          ],
+
+    sourceImageMimes:
+      contact.pendingImageMimes?.length
+        ? contact.pendingImageMimes
+        : [
+            contact.pendingImageMime ??
+              'image/jpeg',
+          ],
+  });
+
+  await this.dataStore.updateContact(
+    contact.id,
+    {
+      state: 'processing',
+    },
+  );
+
+  await this.reply(
+    contact,
+    [
+      'Sorğunuz qəbul edildi 🎬',
+      '',
+      `${selectedDuration} saniyəlik video hazırlanır.`,
+      `Video ${sceneCount} ayrı 10 saniyəlik səhnə kimi yaradılacaq və avtomatik birləşdiriləcək.`,
+      '',
+      'Hazır olduqda bu söhbətə göndərəcəyəm.',
+    ].join('\n'),
+  );
+}
 
   private async cancelVideoFlow(
     contact: Contact,
