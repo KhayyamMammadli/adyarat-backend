@@ -1218,12 +1218,35 @@ if (choiceId.startsWith('video_duration_')) {
     );
 
   const isLongVideo =
-    selectedDuration > 10;
+  selectedDuration > 10;
 
-  const prompt =
-    await this.ai.enhanceVideoPrompt(
-      rawText,
-    );
+const adValidation =
+  await this.ai.validateAdvertisementRequest(
+    rawText,
+  );
+
+if (!adValidation.isAdvertisement) {
+  await this.reply(
+    contact,
+    [
+      '🚫 Bu sorğu reklam videosu kimi qəbul edilmədi.',
+      '',
+      'AdYarat yalnız məhsul, xidmət, biznes, brend, kampaniya və digər reklam məqsədli videolar hazırlayır.',
+      '',
+      'Məsələn belə yazın:',
+      '“Bu fincan üçün premium məhsul reklamı hazırla.”',
+      '',
+      `Səbəb: ${adValidation.reason}`,
+    ].join('\n'),
+  );
+
+  return;
+}
+
+const prompt =
+  await this.ai.enhanceVideoPrompt(
+    rawText,
+  );
 
   await this.dataStore.createJob({
     contactId: contact.id,
