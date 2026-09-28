@@ -344,6 +344,125 @@ async sendVideoDurationMenu(
     return messageId;
   }
 
+async sendVideo(
+  to: string,
+  bytes: Buffer,
+  caption?: string,
+): Promise<string> {
+  const mediaId = await this.uploadMedia(
+    bytes,
+    'video/mp4',
+    'adyarat-video.mp4',
+  );
+
+  const response =
+    await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'video',
+          video: {
+            id: mediaId,
+            ...(caption
+              ? {
+                  caption,
+                }
+              : {}),
+          },
+        }),
+      },
+    );
+
+  const messageId =
+    response.messages?.[0]?.id;
+
+  if (!messageId) {
+    throw new ExternalServiceError(
+      'Meta did not return a message id',
+      502,
+      response,
+    );
+  }
+
+  return messageId;
+}
+
+async sendQuickActions(
+  to: string,
+): Promise<string> {
+  const response =
+    await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: {
+              text: 'Növbəti nə etmək istəyirsiniz?',
+            },
+            footer: {
+              text: 'AdYarat',
+            },
+            action: {
+              buttons: [
+                {
+                  type: 'reply',
+                  reply: {
+                    id: 'quick_new_ad',
+                    title: '✨ Yeni reklam',
+                  },
+                },
+                {
+                  type: 'reply',
+                  reply: {
+                    id: 'quick_menu',
+                    title: '📋 Menyu',
+                  },
+                },
+                {
+                  type: 'reply',
+                  reply: {
+                    id: 'quick_support',
+                    title: '💬 Dəstək',
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+  const messageId =
+    response.messages?.[0]?.id;
+
+  if (!messageId) {
+    throw new ExternalServiceError(
+      'Meta did not return a message id',
+      502,
+      response,
+    );
+  }
+
+  return messageId;
+}
+
+
   async sendDocument(
     to: string,
     bytes: Buffer,
