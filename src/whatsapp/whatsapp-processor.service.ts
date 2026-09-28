@@ -184,6 +184,41 @@ export class WhatsAppProcessorService {
       return;
     }
 
+    const dailyVideoLimit =
+  this.config.get<number>(
+    'DAILY_VIDEO_LIMIT',
+  ) ?? 5;
+
+const last24Hours =
+  new Date(
+    Date.now() -
+      24 * 60 * 60 * 1000,
+  );
+
+const recentJobCount =
+  await this.dataStore.countRecentJobs(
+    contact.id,
+    last24Hours,
+  );
+
+if (
+  recentJobCount >=
+  dailyVideoLimit
+) {
+  await this.reply(
+    contact,
+    [
+      '⏳ Gündəlik video limitiniz tamamlanıb.',
+      '',
+      `Son 24 saat ərzində maksimum ${dailyVideoLimit} reklam videosu hazırlamaq olar.`,
+      '',
+      'Limit avtomatik olaraq əvvəlki videoların vaxtı keçdikcə yenilənəcək.',
+    ].join('\n'),
+  );
+
+  return;
+}
+
     const media = await this.whatsapp.downloadMedia(
       message.image.id,
     );
