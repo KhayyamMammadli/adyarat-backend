@@ -942,140 +942,183 @@ export class DataStoreService {
   }
 
   async createJob(
-    input: CreateJobInput,
-  ): Promise<GenerationJob> {
-    const now =
-      new Date().toISOString();
+  input: CreateJobInput,
+): Promise<GenerationJob> {
+  const now =
+    new Date().toISOString();
 
-    const sourceImagePaths =
-      input.sourceImagePaths
-        ?.length
-        ? input.sourceImagePaths
-        : [
-            input.inputStoragePath,
-          ];
+  const sourceImagePaths =
+    input.sourceImagePaths?.length
+      ? input.sourceImagePaths
+      : [
+          input.inputStoragePath,
+        ];
 
-    const sourceImageMimes =
-      input.sourceImageMimes
-        ?.length
-        ? input.sourceImageMimes
-        : [
-            input.inputMimeType,
-          ];
+  const sourceImageMimes =
+    input.sourceImageMimes?.length
+      ? input.sourceImageMimes
+      : [
+          input.inputMimeType,
+        ];
 
-    const sceneCount =
-      input.sceneCount ??
-      (
-        input.videoMode ===
-        'long'
-          ? 6
-          : 1
-      );
+  const targetDurationSeconds =
+    input.targetDurationSeconds ?? 10;
 
-    if (!this.supabase.isEnabled()) {
-      const job: GenerationJob = {
-        id: randomUUID(),
-        contactId:
+  const sceneCount =
+    input.sceneCount ??
+    Math.max(
+      1,
+      Math.ceil(
+        targetDurationSeconds / 10,
+      ),
+    );
+
+  const videoMode =
+    targetDurationSeconds > 10
+      ? 'long'
+      : 'single';
+
+  if (!this.supabase.isEnabled()) {
+    const job: GenerationJob = {
+      id: randomUUID(),
+
+      contactId:
+        input.contactId,
+
+      status:
+        'queued',
+
+      provider:
+        input.provider,
+
+      prompt:
+        input.prompt,
+
+      inputStoragePath:
+        input.inputStoragePath,
+
+      inputMimeType:
+        input.inputMimeType,
+
+      createdAt:
+        now,
+
+      updatedAt:
+        now,
+
+      videoMode,
+
+      targetDurationSeconds,
+
+      sceneCount,
+
+      stage:
+        'queued',
+
+      progressCompleted:
+        0,
+
+      progressTotal:
+        sceneCount,
+
+      sourceImagePaths,
+
+      sourceImageMimes,
+
+      scenePlan:
+        input.scenePlan,
+
+      narrationText:
+        input.narrationText,
+
+      musicMood:
+        input.musicMood,
+    };
+
+    this.jobs.set(
+      job.id,
+      job,
+    );
+
+    return {
+      ...job,
+    };
+  }
+
+  const {
+    data,
+    error,
+  } =
+    await this.supabase.client
+      .from(
+        'generation_jobs',
+      )
+      .insert({
+        contact_id:
           input.contactId,
-        status: 'queued',
+
+        status:
+          'queued',
+
         provider:
           input.provider,
+
         prompt:
           input.prompt,
-        inputStoragePath:
+
+        input_storage_path:
           input.inputStoragePath,
-        inputMimeType:
+
+        input_mime_type:
           input.inputMimeType,
-        createdAt: now,
-        updatedAt: now,
-        videoMode:
-          input.videoMode ??
-          'single',
-        targetDurationSeconds:
-          input.targetDurationSeconds ??
-          10,
-        sceneCount,
-        stage: 'queued',
-        progressCompleted: 0,
-        progressTotal:
+
+        video_mode:
+          videoMode,
+
+        target_duration_seconds:
+          targetDurationSeconds,
+
+        scene_count:
           sceneCount,
-        sourceImagePaths,
-        sourceImageMimes,
-        scenePlan:
-          input.scenePlan,
-        narrationText:
-          input.narrationText,
-        musicMood:
-          input.musicMood,
-      };
 
-      this.jobs.set(
-        job.id,
-        job,
-      );
+        stage:
+          'queued',
 
-      return {
-        ...job,
-      };
-    }
+        progress_completed:
+          0,
 
-    const {
-      data,
-      error,
-    } =
-      await this.supabase.client
-        .from(
-          'generation_jobs',
-        )
-        .insert({
-          contact_id:
-            input.contactId,
-          status: 'queued',
-          provider:
-            input.provider,
-          prompt:
-            input.prompt,
-          input_storage_path:
-            input.inputStoragePath,
-          input_mime_type:
-            input.inputMimeType,
-          video_mode:
-            input.videoMode ??
-            'single',
-          target_duration_seconds:
-            input.targetDurationSeconds ??
-            10,
-          scene_count:
-            sceneCount,
-          stage: 'queued',
-          progress_completed: 0,
-          progress_total:
-            sceneCount,
-          source_image_paths:
-            sourceImagePaths,
-          source_image_mimes:
-            sourceImageMimes,
-          scene_plan:
-            input.scenePlan ??
-            null,
-          narration_text:
-            input.narrationText ??
-            null,
-          music_mood:
-            input.musicMood ??
-            null,
-        })
-        .select('*')
-        .single();
+        progress_total:
+          sceneCount,
 
-    if (error) {
-      throw error;
-    }
+        source_image_paths:
+          sourceImagePaths,
 
-    return this.mapJob(
-      data as DbGenerationJob,
-    );
+        source_image_mimes:
+          sourceImageMimes,
+
+        scene_plan:
+          input.scenePlan ??
+          null,
+
+        narration_text:
+          input.narrationText ??
+          null,
+
+        music_mood:
+          input.musicMood ??
+          null,
+      })
+      .select('*')
+      .single();
+
+  if (error) {
+    throw error;
   }
+
+  return this.mapJob(
+    data as DbGenerationJob,
+  );
+}
 
   async hasActiveJob(
     contactId: string,
