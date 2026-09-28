@@ -213,6 +213,31 @@ export class WhatsAppProcessorService {
       return;
     }
 
+    const imageValidation =
+  await this.ai.validateAdvertisementImage(
+    media.bytes,
+    media.mimeType,
+  );
+
+if (
+  !imageValidation.isSuitableForAdvertisement
+) {
+  await this.reply(
+    contact,
+    [
+      '🚫 Bu şəkil reklam videosu üçün uyğun hesab edilmədi.',
+      '',
+      'AdYarat yalnız məhsul, xidmət, biznes, brend, restoran, daşınmaz əmlak, avtomobil, tətbiq və digər reklam məqsədli vizuallarla işləyir.',
+      '',
+      `Səbəb: ${imageValidation.reason}`,
+      '',
+      'Zəhmət olmasa reklam etmək istədiyiniz məhsul və ya xidmətə aid şəkil göndərin.',
+    ].join('\n'),
+  );
+
+  return;
+}
+
     const path =
       `inputs/${contact.waId}/${message.id}.` +
       this.imageExtension(media.mimeType);
