@@ -14,6 +14,7 @@ import {
   JobStatus,
   MessageRecord,
   SegmentStatus,
+  VideoDurationSeconds,
   WebhookEvent,
 } from '../common/domain';
 import { SupabaseService } from './supabase.service';
@@ -70,7 +71,7 @@ interface DbContact {
   free_video_used: boolean;
   pending_image_path: string | null;
   pending_image_mime: string | null;
-  selected_video_duration_seconds: 10 | 60;
+  selected_video_duration_seconds: VideoDurationSeconds;
   pending_image_paths: unknown;
   pending_image_mimes: unknown;
   created_at: string;
@@ -101,18 +102,31 @@ interface DbGenerationJob {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+
   video_mode: 'single' | 'long';
-  target_duration_seconds: 5 | 10 | 60;
+
+  target_duration_seconds: VideoDurationSeconds;
+
   scene_count: number;
+
   stage: JobStage;
+
   progress_completed: number;
+
   progress_total: number;
+
   source_image_paths: unknown;
+
   source_image_mimes: unknown;
+
   scene_plan: unknown;
+
   narration_text: string | null;
+
   music_mood: string | null;
+
   audio_storage_path: string | null;
+
   error_code: string | null;
 }
 
