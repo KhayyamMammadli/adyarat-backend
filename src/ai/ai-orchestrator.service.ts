@@ -167,25 +167,69 @@ export class AiOrchestratorService {
 }
 
   async enhanceVideoPrompt(
-    prompt: string,
-  ): Promise<string> {
-    try {
-      const result = await this.answer({
-        text: prompt,
-        maxOutputTokens: 350,
-        systemInstruction:
-          'Convert the Azerbaijani/Turkish request into one concise English image-to-video advertising prompt. Preserve product, action, camera and mood. Return only the prompt.',
-      });
+  prompt: string,
+): Promise<string> {
+  const cleanPrompt = prompt.trim();
 
-      return result.text;
-    } catch (error) {
-      this.logger.warn(
-        `Video prompt enhancement skipped: ${this.errorMessage(error)}`,
-      );
+  try {
+    const result = await this.answer({
+      text: cleanPrompt,
+      maxOutputTokens: 500,
+      systemInstruction: [
+        'You are a professional commercial video prompt director for AdYarat.',
+        'AdYarat generates ONLY advertising videos.',
+        'Transform the user request into one concise English image-to-video commercial prompt.',
+        '',
+        'The final prompt MUST:',
+        '- clearly present the referenced product, service, business or brand as the main subject;',
+        '- look like a professional commercial advertisement;',
+        '- preserve the visual identity of the reference image;',
+        '- preserve product shape, proportions, colors, logo, labels and orientation;',
+        '- preserve left/right placement and important physical details from the reference image;',
+        '- describe realistic natural motion;',
+        '- describe clear camera movement;',
+        '- use professional commercial lighting;',
+        '- use clean premium advertising composition;',
+        '- keep the product visually consistent throughout the shot;',
+        '- avoid unnecessary transformations of the product;',
+        '- avoid changing product geometry or swapping left/right features;',
+        '- avoid unrelated cinematic storytelling;',
+        '- avoid turning the request into a movie, meme, music video or entertainment scene;',
+        '- remain focused on selling, promoting or presenting the product/service;',
+        '',
+        'If a human interacts with the product, describe the interaction precisely.',
+        'For example, if a handle is on the right side, the hand must approach and grip it from the correct side.',
+        '',
+        'Do not invent prices, discounts, product claims or brand information not provided by the user.',
+        '',
+        'Return ONLY the final English Runway prompt.',
+        'Do not explain anything.',
+      ].join('\n'),
+    });
 
-      return prompt;
-    }
+    return [
+      'Professional commercial advertisement.',
+      result.text.trim(),
+      'Maintain strict visual consistency with the reference image throughout the entire shot.',
+      'Product identity, geometry, orientation, colors, logo and visible details remain consistent.',
+    ].join(' ');
+  } catch (error) {
+    this.logger.warn(
+      `Video prompt enhancement skipped: ${this.errorMessage(
+        error,
+      )}`,
+    );
+
+    return [
+      'Professional commercial advertisement.',
+      cleanPrompt,
+      'Keep the product as the hero subject.',
+      'Maintain strict visual consistency with the reference image.',
+      'Preserve product geometry, orientation, colors, logo and visible details.',
+      'Use realistic motion, professional commercial lighting and clean advertising cinematography.',
+    ].join(' ');
   }
+}
 
   async translate(
     text: string,
