@@ -213,6 +213,68 @@ export class WhatsAppClientService {
     return messageId;
   }
 
+async sendVideoDurationMenu(
+  to: string,
+): Promise<string> {
+  const response =
+    await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: {
+              text: 'Videonun uzunluğunu seçin:',
+            },
+            footer: {
+              text: 'AdYarat',
+            },
+            action: {
+              buttons: [
+                {
+                  type: 'reply',
+                  reply: {
+                    id: 'video_duration_10',
+                    title: '🎬 10 saniyə',
+                  },
+                },
+                {
+                  type: 'reply',
+                  reply: {
+                    id: 'video_duration_60',
+                    title: '🎥 60 saniyə',
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+  const messageId =
+    response.messages?.[0]?.id;
+
+  if (!messageId) {
+    throw new ExternalServiceError(
+      'Meta did not return a message id',
+      502,
+      response,
+    );
+  }
+
+  return messageId;
+}
+  
+
   async sendQuickActions(
     to: string,
   ): Promise<string> {
