@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Contact,
+  ConversationMessage,
+  VideoDurationSeconds,
+} from '../common/domain';
 import { ConfigService } from '@nestjs/config';
 import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
 import { AiConversationTurn, AiProviderName } from '../ai/ai.types';
@@ -489,72 +493,113 @@ export class WhatsAppProcessorService {
       return;
     }
 
-    if (choiceId === 'video_duration_10') {
-      const updatedContact =
-        await this.dataStore.updateContact(
-          contact.id,
-          {
-            selectedVideoDurationSeconds: 10,
-            state: contact.pendingImagePath
-              ? 'awaiting_prompt'
-              : 'new',
-          },
-        );
+   if (choiceId === 'video_duration_more') {
+  const messageId =
+    await this.whatsapp.sendVideoDurationMenuPage2(
+      contact.waId,
+    );
 
-      await this.reply(
-        updatedContact,
-        updatedContact.pendingImagePath
-          ? [
-              '🎬 10 saniyəlik video seçildi.',
-              '',
-              'Məhsul şəkliniz hazırdır.',
-              'İndi videoda nə baş verməsini istədiyinizi yazın.',
-            ].join('\n')
-          : [
-              '🎬 10 saniyəlik video seçildi.',
-              '',
-              'İndi məhsul şəklini göndərin.',
-              'Sonra videoda nə baş verməsini istədiyinizi yazacaqsınız.',
-            ].join('\n'),
-      );
+  await this.dataStore.recordMessage({
+    waMessageId: messageId,
+    contactId: contact.id,
+    direction: 'outbound',
+    type: 'interactive',
+    content: {
+      menu: 'video-duration-page-2',
+    },
+    status: 'sent',
+  });
 
-      return;
-    }
+  return;
+}
 
-    if (choiceId === 'video_duration_60') {
-      const updatedContact =
-        await this.dataStore.updateContact(
-          contact.id,
-          {
-            selectedVideoDurationSeconds: 60,
-            state: contact.pendingImagePath
-              ? 'awaiting_prompt'
-              : 'new',
-          },
-        );
+if (choiceId.startsWith('video_duration_')) {
+  const durationValue = Number(
+    choiceId.replace(
+      'video_duration_',
+      '',
+    ),
+  );
 
-      await this.reply(
-        updatedContact,
-        updatedContact.pendingImagePath
-          ? [
-              '🎥 60 saniyəlik reklam seçildi.',
-              '',
-              'Məhsul şəkliniz hazırdır.',
-              'Video 6 ayrı 10 saniyəlik səhnə kimi hazırlanacaq və avtomatik birləşdiriləcək.',
-              '',
-              'İndi reklamda nə baş verməsini istədiyinizi yazın.',
-            ].join('\n')
-          : [
-              '🎥 60 saniyəlik reklam seçildi.',
-              '',
-              'Video 6 ayrı 10 saniyəlik səhnə kimi hazırlanacaq və avtomatik birləşdiriləcək.',
-              '',
-              'İndi məhsul şəklini göndərin.',
-            ].join('\n'),
-      );
+  const allowedDurations: VideoDurationSeconds[] = [
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    110,
+    120,
+    130,
+    140,
+    150,
+    160,
+    170,
+    180,
+  ];
 
-      return;
-    }
+  if (
+    !allowedDurations.includes(
+      durationValue as VideoDurationSeconds,
+    )
+  ) {
+    await this.reply(
+      contact,
+      'Yanlış video müddəti seçildi. Zəhmət olmasa yenidən seçim edin.',
+    );
+
+    return;
+  }
+
+  const duration =
+    durationValue as VideoDurationSeconds;
+
+  const sceneCount =
+    duration / 10;
+
+  const updatedContact =
+    await this.dataStore.updateContact(
+      contact.id,
+      {
+        selectedVideoDurationSeconds:
+          duration,
+
+        state:
+          contact.pendingImagePath
+            ? 'awaiting_prompt'
+            : 'new',
+      },
+    );
+
+  await this.reply(
+    updatedContact,
+
+    updatedContact.pendingImagePath
+      ? [
+          `🎬 ${duration} saniyəlik video seçildi.`,
+          '',
+          `Video ${sceneCount} ayrı 10 saniyəlik səhnə kimi hazırlanacaq və avtomatik birləşdiriləcək.`,
+          '',
+          'Məhsul şəkliniz artıq hazırdır.',
+          'İndi videoda nə baş verməsini istədiyinizi yazın.',
+        ].join('\n')
+
+      : [
+          `🎬 ${duration} saniyəlik video seçildi.`,
+          '',
+          `Video ${sceneCount} ayrı 10 saniyəlik səhnə kimi hazırlanacaq və avtomatik birləşdiriləcək.`,
+          '',
+          'İndi məhsul şəklini göndərin.',
+          'Sonra videoda nə baş verməsini istədiyinizi yazacaqsınız.',
+        ].join('\n'),
+  );
+
+  return;
+}
 
     if (choiceId === 'ad_copy') {
       await this.dataStore.updateContact(
