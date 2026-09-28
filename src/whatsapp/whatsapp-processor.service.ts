@@ -1268,6 +1268,42 @@ if (!adValidation.isAdvertisement) {
   return;
 }
 
+const referenceImage =
+  await this.mediaStore.get(
+    contact.pendingImagePath,
+  );
+
+const imagePromptValidation =
+  await this.ai.validateAdvertisementImagePrompt(
+    referenceImage,
+    contact.pendingImageMime ??
+      'image/jpeg',
+    rawText,
+  );
+
+if (!imagePromptValidation.isRelevant) {
+  await this.reply(
+    contact,
+    [
+      '🚫 Yazdığınız reklam təsviri göndərdiyiniz şəkillə uyğun deyil.',
+      '',
+      'Video təsviri şəkildəki məhsul, xidmət və ya bizneslə əlaqəli olmalıdır.',
+      '',
+      `Səbəb: ${imagePromptValidation.reason}`,
+      '',
+      'Məsələn:',
+      '“Bu məhsulu premium reklam üslubunda göstər, kamera yavaş-yavaş yaxınlaşsın.”',
+    ].join('\n'),
+  );
+
+  return;
+}
+
+const prompt =
+  await this.ai.enhanceVideoPrompt(
+    rawText,
+  );
+
 const prompt =
   await this.ai.enhanceVideoPrompt(
     rawText,
