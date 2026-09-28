@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AudioComposerService } from './audio-composer.service';
 import {
   AiProviderName,
   AiTextRequest,
@@ -27,6 +28,7 @@ export class AiOrchestratorService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly audioComposer: AudioComposerService,
   ) {}
 
   async answer(
@@ -305,14 +307,16 @@ export class AiOrchestratorService {
     );
   }
 
+  const finalAudio =
+    await this.audioComposer.concatenate(
+      audioParts,
+    );
+
   return {
     provider: 'openai',
-    bytes:
-      Buffer.concat(audioParts),
-    mimeType:
-      'audio/mpeg',
-    filename:
-      'adyarat-voice-ad.mp3',
+    bytes: finalAudio,
+    mimeType: 'audio/mpeg',
+    filename: 'adyarat-voice-ad.mp3',
   };
 }
 
