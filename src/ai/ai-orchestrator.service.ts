@@ -193,14 +193,35 @@ export class AiOrchestratorService {
   }
 
   async synthesizeSpeech(
-    text: string,
-    targetLanguage: string,
-  ): Promise<SpeechSynthesisResult> {
-    if (text.length > 4096) {
-      throw new Error(
-        'Səsə çevriləcək tərcümə maksimum 4096 simvol ola bilər.',
-      );
-    }
+  text: string,
+  targetLanguage: string,
+): Promise<SpeechSynthesisResult> {
+  const cleanText = text.trim();
+
+  if (!cleanText) {
+    throw new Error(
+      'Səsə çevriləcək mətn boş ola bilməz.',
+    );
+  }
+
+  const chunks =
+    this.splitSpeechText(
+      cleanText,
+      3500,
+    );
+
+  const audioParts: Buffer[] = [];
+
+  for (
+    let index = 0;
+    index < chunks.length;
+    index += 1
+  ) {
+    const chunk = chunks[index];
+
+    this.logger.log(
+      `Generating speech part ${index + 1}/${chunks.length}`,
+    );
 
     const response = await fetch(
       'https://api.openai.com/v1/audio/speech',
@@ -208,24 +229,41 @@ export class AiOrchestratorService {
         method: 'POST',
         headers: {
           Authorization:
-            `Bearer ${this.requireConfig('OPENAI_API_KEY')}`,
-          'Content-Type': 'application/json',
+            `Bearer ${this.requireConfig(
+              'OPENAI_API_KEY',
+            )}`,
+          'Content-Type':
+            'application/json',
         },
         body: JSON.stringify({
           model:
             this.config.get<string>(
               'OPENAI_TTS_MODEL',
-            ) ?? 'gpt-4o-mini-tts',
+            ) ??
+            'gpt-4o-mini-tts',
+
           voice:
             this.config.get<string>(
               'OPENAI_TTS_VOICE',
-            ) ?? 'marin',
-          input: text,
-          instructions:
-            `Speak naturally and clearly in ${targetLanguage}. ` +
-            'Preserve the meaning and use native pronunciation.',
+            ) ??
+            'marin',
+
+          input: chunk,
+
+          instructions: [
+            `Speak naturally and clearly in ${targetLanguage}.`,
+            'Read the supplied text exactly as written.',
+            'Do not summarize.',
+            'Do not shorten.',
+            'Do not rewrite.',
+            'Do not omit sentences.',
+            'Preserve numbers, names and meaning.',
+            'Use natural native pronunciation.',
+          ].join(' '),
+
           response_format: 'mp3',
         }),
+
         signal: AbortSignal.timeout(
           this.requestTimeout(),
         ),
@@ -233,20 +271,24 @@ export class AiOrchestratorService {
     );
 
     if (!response.ok) {
-      const raw = await response.text();
+      const raw =
+        await response.text();
+
       let message = raw;
 
       try {
-        const body = JSON.parse(raw) as {
-          error?: {
-            message?: string;
+        const body =
+          JSON.parse(raw) as {
+            error?: {
+              message?: string;
+            };
           };
-        };
 
         message =
-          body.error?.message ?? raw;
+          body.error?.message ??
+          raw;
       } catch {
-        // Cavab JSON olmadıqda xam mətni saxlayırıq.
+        // JSON deyilsə xam cavabı saxlayırıq.
       }
 
       throw new AiProviderError(
@@ -256,15 +298,119 @@ export class AiOrchestratorService {
       );
     }
 
-    return {
-      provider: 'openai',
-      bytes: Buffer.from(
+    audioParts.push(
+      Buffer.from(
         await response.arrayBuffer(),
       ),
-      mimeType: 'audio/mpeg',
-      filename:
-        'adyarat-translated-speech.mp3',
+    );
+  }
+
+  return {
+    provider: 'openai',
+    bytes:
+      Buffer.concat(audioParts),
+    mimeType:
+      'audio/mpeg',
+    filename:
+      'adyarat-voice-ad.mp3',
+  };
+}
+
+
+  private splitSpeechText(
+    text: string,
+    maxLength: number,
+  ): string[] {
+    if (text.length <= maxLength) {
+      return [text];
+    }
+
+    const paragraphs =
+      text
+        .split(/\n+/)
+        .map(
+          (part) => part.trim(),
+        )
+        .filter(Boolean);
+
+    const chunks: string[] = [];
+    let current = '';
+
+    const pushCurrent = () => {
+      if (!current.trim()) {
+        return;
+      }
+
+      chunks.push(
+        current.trim(),
+      );
+
+      current = '';
     };
+
+    for (
+      const paragraph of paragraphs
+    ) {
+      const sentences =
+        paragraph
+          .split(
+            /(?<=[.!?…])\s+/,
+          )
+          .map(
+            (sentence) =>
+              sentence.trim(),
+          )
+          .filter(Boolean);
+
+      for (
+        const sentence of sentences
+      ) {
+        if (
+          sentence.length >
+          maxLength
+        ) {
+          pushCurrent();
+
+          for (
+            let start = 0;
+            start <
+            sentence.length;
+            start += maxLength
+          ) {
+            chunks.push(
+              sentence
+                .slice(
+                  start,
+                  start +
+                    maxLength,
+                )
+                .trim(),
+            );
+          }
+
+          continue;
+        }
+
+        const candidate =
+          current
+            ? `${current} ${sentence}`
+            : sentence;
+
+        if (
+          candidate.length >
+          maxLength
+        ) {
+          pushCurrent();
+          current = sentence;
+        } else {
+          current = candidate;
+        }
+      }
+    }
+
+    pushCurrent();
+
+    return chunks;
   }
 
   private callProvider(
