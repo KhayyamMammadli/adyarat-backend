@@ -166,6 +166,158 @@ export class AiOrchestratorService {
   }
 }
 
+
+  async validateAdvertisementImage(
+  image: Buffer,
+  mimeType: string,
+): Promise<{
+  isSuitableForAdvertisement: boolean;
+  subject?: string;
+  reason: string;
+}> {
+  try {
+    if (!this.isConfigured('gemini')) {
+      return {
+        isSuitableForAdvertisement: false,
+        reason:
+          'Şəkil yoxlaması üçün Gemini konfiqurasiya edilməyib.',
+      };
+    }
+
+    const client = new GoogleGenAI({
+      apiKey: this.requireConfig(
+        'GEMINI_API_KEY',
+      ),
+    });
+
+    const response =
+      await client.models.generateContent({
+        model:
+          this.config.get<string>(
+            'GEMINI_MODEL',
+          ) ?? 'gemini-3.8-flash',
+
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: [
+                  'You are an image validator for AdYarat.',
+                  'AdYarat creates ONLY commercial advertising videos.',
+                  '',
+                  'Analyze the uploaded image.',
+                  '',
+                  'ACCEPT images that can reasonably be used as the main visual for an advertisement, including:',
+                  '- physical products;',
+                  '- food or drinks;',
+                  '- packaged goods;',
+                  '- clothing or accessories;',
+                  '- electronics;',
+                  '- cars or vehicles;',
+                  '- real estate or interiors;',
+                  '- stores, restaurants, salons, offices or business locations;',
+                  '- logos, branding or business materials;',
+                  '- app or website screenshots;',
+                  '- service-related professional visuals;',
+                  '- event or campaign visuals;',
+                  '- other legitimate commercial subjects.',
+                  '',
+                  'REJECT images that are clearly intended only for unrelated entertainment or random video generation, including:',
+                  '- random memes;',
+                  '- unrelated fantasy art;',
+                  '- random fight scenes;',
+                  '- gaming screenshots with no advertising context;',
+                  '- movie scenes;',
+                  '- meaningless images;',
+                  '- images with no reasonable commercial advertising use.',
+                  '',
+                  'Do not reject an image only because a person is visible.',
+                  'A person may appear in a legitimate fashion, beauty, service, restaurant, real-estate or other commercial advertisement.',
+                  '',
+                  'Return ONLY valid JSON using exactly this structure:',
+                  '{"isSuitableForAdvertisement":true,"subject":"...","reason":"..."}',
+                  'or:',
+                  '{"isSuitableForAdvertisement":false,"subject":"","reason":"..."}',
+                ].join('\n'),
+              },
+              {
+                inlineData: {
+                  mimeType,
+                  data:
+                    image.toString(
+                      'base64',
+                    ),
+                },
+              },
+            ],
+          },
+        ],
+
+        config: {
+          maxOutputTokens: 300,
+        },
+      });
+
+    const raw =
+      response.text?.trim() ?? '';
+
+    const normalized = raw
+      .replace(
+        /^```(?:json)?\s*/i,
+        '',
+      )
+      .replace(
+        /\s*```$/i,
+        '',
+      );
+
+    const parsed =
+      JSON.parse(
+        normalized,
+      ) as {
+        isSuitableForAdvertisement?: unknown;
+        subject?: unknown;
+        reason?: unknown;
+      };
+
+    return {
+      isSuitableForAdvertisement:
+        parsed.isSuitableForAdvertisement ===
+        true,
+
+      subject:
+        typeof parsed.subject ===
+          'string' &&
+        parsed.subject.trim()
+          ? parsed.subject.trim()
+          : undefined,
+
+      reason:
+        typeof parsed.reason ===
+          'string' &&
+        parsed.reason.trim()
+          ? parsed.reason.trim()
+          : parsed.isSuitableForAdvertisement ===
+              true
+            ? 'Şəkil reklam üçün uyğundur.'
+            : 'Şəkil reklam üçün uyğun deyil.',
+    };
+  } catch (error) {
+    this.logger.warn(
+      `Advertisement image validation failed: ${this.errorMessage(
+        error,
+      )}`,
+    );
+
+    return {
+      isSuitableForAdvertisement: false,
+      reason:
+        'Şəkil reklam məqsədi üçün təsdiqlənə bilmədi.',
+    };
+  }
+}
+
   async enhanceVideoPrompt(
   prompt: string,
 ): Promise<string> {
