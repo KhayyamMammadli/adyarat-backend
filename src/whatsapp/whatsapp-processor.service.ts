@@ -1,4 +1,3 @@
-
 import {
   Injectable,
   Logger,
@@ -44,33 +43,6 @@ import {
   WhatsAppWebhookPayload,
 } from './whatsapp.types';
 
-import {
-  extractMessages,
-  extractStatuses,
-  normalizeCommand,
-} from './webhook.utils';
-
-import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
-import { AiConversationTurn, AiProviderName } from '../ai/ai.types';
-import {
-  isVideoIntent,
-  parseProviderCommand,
-  providerLabel,
-  splitText,
-} from '../ai/ai.utils';
-import { DocumentTranslationService } from '../ai/document-translation.service';
-import { MediaStoreService } from '../media/media-store.service';
-import { DataStoreService } from '../supabase/data-store.service';
-import { WhatsAppClientService } from './whatsapp-client.service';
-import {
-  WhatsAppAudioMessage,
-  WhatsAppDocumentMessage,
-  WhatsAppImageMessage,
-  WhatsAppInteractiveMessage,
-  WhatsAppMessage,
-  WhatsAppTextMessage,
-  WhatsAppWebhookPayload,
-} from './whatsapp.types';
 import {
   extractMessages,
   extractStatuses,
