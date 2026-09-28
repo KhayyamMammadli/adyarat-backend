@@ -234,15 +234,76 @@ export class GenerationWorkerService
             index,
         );
 
-      const scenePrompt =
+     const scenePrompt =
         plannedScene?.prompt ??
-        [
+        this.buildScenePrompt(
           job.prompt,
-          '',
-          `Scene ${index + 1} of ${sceneCount}.`,
-          'Create one cinematic advertising scene.',
-          'Keep the visual style consistent with the other scenes.',
-        ].join('\n');
+          index,
+          sceneCount,
+        );
+
+      private buildScenePrompt(
+  basePrompt: string,
+  sceneIndex: number,
+  sceneCount: number,
+): string {
+  const sceneDirections = [
+    'Cinematic establishing shot. Introduce the product or business and its environment. Smooth camera movement, premium commercial look.',
+
+    'Medium shot focused on the product being used naturally. Show the main action clearly. Dynamic but elegant camera movement.',
+
+    'Extreme close-up product detail shot. Highlight texture, material, steam, light reflections or important visual details.',
+
+    'Lifestyle scene with a person naturally interacting with the product. Authentic emotion, premium advertising style.',
+
+    'Show the main benefit of the product visually. Make the advantage easy to understand without relying on text.',
+
+    'Hero product shot. Product centered beautifully with cinematic lighting, shallow depth of field and premium composition.',
+
+    'Different camera angle and location while keeping the same visual identity. Add visual variety to the commercial.',
+
+    'Slow cinematic tracking shot. Show the product in motion or demonstrate how it works.',
+
+    'Emotional lifestyle moment connected to the product. Natural human reaction and visually attractive environment.',
+
+    'Macro detail shot with dramatic lighting. Focus on the strongest visual feature of the product.',
+
+    'Wide cinematic scene showing the product in its real environment. Professional commercial photography style.',
+
+    'Dynamic advertising scene. Faster camera movement while preserving premium cinematic quality.',
+
+    'Show another important use case or benefit of the product. Make this scene clearly different from previous scenes.',
+
+    'Elegant close-up with slow camera push-in. Premium lighting and strong visual focus on the brand or product.',
+
+    'Lifestyle scene from a new perspective. Natural movement, realistic environment and commercial quality.',
+
+    'Final product showcase. Make the product look desirable, polished and premium.',
+
+    'Brand-focused closing scene. Leave clean visual space where a logo or call-to-action could later be added.',
+
+    'Strong cinematic ending shot. Product hero composition, memorable lighting and polished commercial finish.',
+  ];
+
+  const direction =
+    sceneDirections[
+      sceneIndex %
+        sceneDirections.length
+    ];
+
+  return [
+    basePrompt,
+    '',
+    `Scene ${sceneIndex + 1} of ${sceneCount}.`,
+    direction,
+    '',
+    'IMPORTANT:',
+    'This scene must look visually different from the previous scenes.',
+    'Keep the same product identity and overall advertising style.',
+    'Do not add random text, logos or watermarks.',
+    'Create a professional cinematic advertisement.',
+  ].join('\n');
+}
 
       this.logger.log(
         `Generating scene ${index + 1}/${sceneCount} ` +
