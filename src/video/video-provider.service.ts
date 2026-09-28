@@ -115,7 +115,7 @@ export class VideoProviderService {
           duration:
             this.config.get<number>(
               'RUNWAY_DURATION',
-            ) ?? 5,
+            ) ?? 10,
           ratio:
             ratio as (typeof allowedRatios)[number],
         });
