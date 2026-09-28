@@ -213,7 +213,8 @@ export class WhatsAppClientService {
     return messageId;
   }
 
-async sendVideoDurationMenu(
+
+  async sendVideoDurationMenu(
   to: string,
 ): Promise<string> {
   const durations = [
@@ -226,15 +227,6 @@ async sendVideoDurationMenu(
     70,
     80,
     90,
-    100,
-    110,
-    120,
-    130,
-    140,
-    150,
-    160,
-    170,
-    180,
   ];
 
   const response =
@@ -256,7 +248,7 @@ async sendVideoDurationMenu(
               text: [
                 '🎬 Videonun uzunluğunu seçin.',
                 '',
-                '10 saniyədən 180 saniyəyə qədər seçim edə bilərsiniz.',
+                '10 saniyədən 180 saniyəyə qədər video hazırlaya bilərsiniz.',
               ].join('\n'),
             },
             footer: {
@@ -267,16 +259,22 @@ async sendVideoDurationMenu(
               sections: [
                 {
                   title: 'Video müddəti',
-                  rows: durations.map(
-                    (duration) => ({
-                      id: `video_duration_${duration}`,
-                      title: `${duration} saniyə`,
+                  rows: [
+                    ...durations.map(
+                      (duration) => ({
+                        id: `video_duration_${duration}`,
+                        title: `${duration} saniyə`,
+                        description:
+                          `${duration / 10} səhnə`,
+                      }),
+                    ),
+                    {
+                      id: 'video_duration_more',
+                      title: '➡️ 100–180 saniyə',
                       description:
-                        duration === 180
-                          ? '3 dəqiqə'
-                          : `${duration / 10} səhnə`,
-                    }),
-                  ),
+                        'Daha uzun video seç',
+                    },
+                  ],
                 },
               ],
             },
