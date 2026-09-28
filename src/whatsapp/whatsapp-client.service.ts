@@ -216,6 +216,27 @@ export class WhatsAppClientService {
 async sendVideoDurationMenu(
   to: string,
 ): Promise<string> {
+  const durations = [
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    110,
+    120,
+    130,
+    140,
+    150,
+    160,
+    170,
+    180,
+  ];
+
   const response =
     await this.graphRequest<MetaMessageResponse>(
       `${this.requirePhoneNumberId()}/messages`,
@@ -230,28 +251,32 @@ async sendVideoDurationMenu(
           ...this.recipientFields(to),
           type: 'interactive',
           interactive: {
-            type: 'button',
+            type: 'list',
             body: {
-              text: 'Videonun uzunluğunu seçin:',
+              text: [
+                '🎬 Videonun uzunluğunu seçin.',
+                '',
+                '10 saniyədən 180 saniyəyə qədər seçim edə bilərsiniz.',
+              ].join('\n'),
             },
             footer: {
               text: 'AdYarat',
             },
             action: {
-              buttons: [
+              button: 'Müddəti seç',
+              sections: [
                 {
-                  type: 'reply',
-                  reply: {
-                    id: 'video_duration_10',
-                    title: '🎬 10 saniyə',
-                  },
-                },
-                {
-                  type: 'reply',
-                  reply: {
-                    id: 'video_duration_60',
-                    title: '🎥 60 saniyə',
-                  },
+                  title: 'Video müddəti',
+                  rows: durations.map(
+                    (duration) => ({
+                      id: `video_duration_${duration}`,
+                      title: `${duration} saniyə`,
+                      description:
+                        duration === 180
+                          ? '3 dəqiqə'
+                          : `${duration / 10} səhnə`,
+                    }),
+                  ),
                 },
               ],
             },
@@ -273,119 +298,6 @@ async sendVideoDurationMenu(
 
   return messageId;
 }
-  
-
-  async sendQuickActions(
-    to: string,
-  ): Promise<string> {
-    const response =
-      await this.graphRequest<MetaMessageResponse>(
-        `${this.requirePhoneNumberId()}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            ...this.recipientFields(to),
-            type: 'interactive',
-            interactive: {
-              type: 'button',
-              body: {
-                text: 'Başqa nə etmək istəyirsiniz?',
-              },
-              footer: {
-                text: 'AdYarat',
-              },
-              action: {
-                buttons: [
-                  {
-                    type: 'reply',
-                    reply: {
-                      id: 'quick_menu',
-                      title: '🏠 Əsas menyu',
-                    },
-                  },
-                  {
-                    type: 'reply',
-                    reply: {
-                      id: 'quick_new_ad',
-                      title: '✨ Yeni reklam',
-                    },
-                  },
-                  {
-                    type: 'reply',
-                    reply: {
-                      id: 'quick_support',
-                      title: '💬 Dəstək',
-                    },
-                  },
-                ],
-              },
-            },
-          }),
-        },
-      );
-
-    const messageId = response.messages?.[0]?.id;
-
-    if (!messageId) {
-      throw new ExternalServiceError(
-        'Meta did not return a message id',
-        502,
-        response,
-      );
-    }
-
-    return messageId;
-  }
-
-  async sendVideo(
-    to: string,
-    bytes: Buffer,
-    caption: string,
-  ): Promise<string> {
-    const mediaId = await this.uploadMedia(
-      bytes,
-      'video/mp4',
-      'adyarat-video.mp4',
-    );
-
-    const response =
-      await this.graphRequest<MetaMessageResponse>(
-        `${this.requirePhoneNumberId()}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            ...this.recipientFields(to),
-            type: 'video',
-            video: {
-              id: mediaId,
-              caption,
-            },
-          }),
-        },
-      );
-
-    const messageId = response.messages?.[0]?.id;
-
-    if (!messageId) {
-      throw new ExternalServiceError(
-        'Meta did not return a message id',
-        502,
-        response,
-      );
-    }
-
-    return messageId;
-  }
 
   async sendAudio(
     to: string,
