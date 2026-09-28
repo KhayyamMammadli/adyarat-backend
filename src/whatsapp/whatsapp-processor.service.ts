@@ -1059,104 +1059,103 @@ if (choiceId.startsWith('video_duration_')) {
   }
 
   private async createVoiceAd(
-    contact: Contact,
-    brief: string,
-  ): Promise<void> {
-    if (brief.length < 10) {
-      await this.reply(
-        contact,
-        'Məlumatı bir az daha ətraflı göndərin. Məhsulun adı, üstünlüyü və təklifinizi qeyd edin.',
-      );
-      return;
-    }
+  contact: Contact,
+  brief: string,
+): Promise<void> {
+  const voiceText = brief.trim();
+
+  if (voiceText.length < 10) {
+    await this.reply(
+      contact,
+      'Mətni bir az daha ətraflı göndərin.',
+    );
+    return;
+  }
+
+  try {
+    await this.reply(
+      contact,
+      '🎙 Məlumat alındı. Səsli reklamınız hazırlanır...',
+    );
+
+    await this.dataStore.updateContact(
+      contact.id,
+      {
+        state: 'new',
+      },
+    );
+
+    await this.reply(
+      contact,
+      [
+        '🎙 Səsli reklam mətni qəbul edildi.',
+        '',
+        voiceText,
+        '',
+        '🔊 Səs faylı hazırlanır...',
+      ].join('\n'),
+      {
+        task: 'voice-ad-script',
+        brief: voiceText,
+      },
+    );
 
     try {
-      await this.reply(
-        contact,
-        '🎙 Məlumat alındı. Səsli reklamınız hazırlanır...',
-      );
+      const speech =
+        await this.ai.synthesizeSpeech(
+          voiceText,
+          'Azərbaycan dili',
+        );
 
-      const result = await this.ai.answer({
-        text: brief,
-        maxOutputTokens: 500,
-        systemInstruction: [
-          'Sən Azərbaycan bazarı üçün peşəkar reklam ssenaristi və diktor mətn müəllifisən.',
-          'Verilən məlumata əsasən 15–30 saniyəlik, təbii və inandırıcı səsli reklam mətni yaz.',
-          'Cavab yalnız Azərbaycan dilində, bir qısa abzas şəklində olsun.',
-          'Başlıq, izah, səhnə qeydi və hashtag yazma.',
-          'Fakt uydurma, verilməyən qiymət və kampaniya əlavə etmə.',
-        ].join('\n'),
+      const messageId =
+        await this.whatsapp.sendAudio(
+          contact.waId,
+          speech.bytes,
+          speech.mimeType,
+          speech.filename,
+        );
+
+      await this.dataStore.recordMessage({
+        waMessageId: messageId,
+        contactId: contact.id,
+        direction: 'outbound',
+        type: 'audio',
+        content: {
+          provider: speech.provider,
+          task: 'voice-ad',
+          text: voiceText,
+        },
+        status: 'sent',
       });
-
-      await this.dataStore.updateContact(
-        contact.id,
-        {
-          state: 'new',
-        },
-      );
-
-      await this.reply(
-        contact,
-        `🎙 Səsli reklam mətniniz:\n\n${result.text}\n\n🔊 Səs faylı hazırlanır...`,
-        {
-          provider: result.provider,
-          task: 'voice-ad-script',
-          brief,
-        },
-      );
-
-      try {
-        const speech =
-          await this.ai.synthesizeSpeech(
-            result.text,
-            'Azərbaycan dili',
-          );
-
-        const messageId =
-          await this.whatsapp.sendAudio(
-            contact.waId,
-            speech.bytes,
-            speech.mimeType,
-            speech.filename,
-          );
-
-        await this.dataStore.recordMessage({
-          waMessageId: messageId,
-          contactId: contact.id,
-          direction: 'outbound',
-          type: 'audio',
-          content: {
-            provider: speech.provider,
-            task: 'voice-ad',
-            text: result.text,
-          },
-          status: 'sent',
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Voice ad speech generation failed: ${this.errorMessage(error)}`,
-        );
-
-        await this.reply(
-          contact,
-          'Reklam mətni hazırdır, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
-        );
-      }
-
-      await this.sendQuickActions(contact);
     } catch (error) {
       this.logger.warn(
-        `Voice ad generation failed: ${this.errorMessage(error)}`,
+        `Voice ad speech generation failed: ${this.errorMessage(
+          error,
+        )}`,
       );
 
       await this.reply(
         contact,
-        'Səsli reklam hazırda yaradıla bilmədi. Məlumatı bir az sonra yenidən göndərin.',
+        'Mətn hazırdır, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
       );
-
-      await this.sendQuickActions(contact);
     }
+
+    await this.sendQuickActions(contact);
+  } catch (error) {
+    this.logger.warn(
+      `Voice ad generation failed: ${this.errorMessage(
+        error,
+      )}`,
+    );
+
+    await this.reply(
+      contact,
+      'Səsli reklam hazırda yaradıla bilmədi. Mətni bir az sonra yenidən göndərin.',
+    );
+
+    await this.sendQuickActions(contact);
   }
+}
 
   private async createVideoJob(
   contact: Contact,
