@@ -1120,6 +1120,51 @@ export class DataStoreService {
   );
 }
 
+  async countRecentJobs(
+  contactId: string,
+  since: Date,
+): Promise<number> {
+  const sinceIso =
+    since.toISOString();
+
+  if (!this.supabase.isEnabled()) {
+    return Array.from(
+      this.jobs.values(),
+    ).filter((job) => {
+      return (
+        job.contactId === contactId &&
+        new Date(job.createdAt).getTime() >=
+          since.getTime()
+      );
+    }).length;
+  }
+
+  const {
+    count,
+    error,
+  } =
+    await this.supabase.client
+      .from('generation_jobs')
+      .select('id', {
+        count: 'exact',
+        head: true,
+      })
+      .eq(
+        'contact_id',
+        contactId,
+      )
+      .gte(
+        'created_at',
+        sinceIso,
+      );
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
   async hasActiveJob(
     contactId: string,
   ): Promise<boolean> {
