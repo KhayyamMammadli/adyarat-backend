@@ -12,6 +12,7 @@ import {
   AiProviderName,
 } from '../ai/ai.types';
 
+import { TelegramAdminService } from '../telegram/telegram-admin.service';
 import {
   isVideoIntent,
   parseProviderCommand,
@@ -65,6 +66,8 @@ export class WhatsAppProcessorService {
     private readonly mediaStore: MediaStoreService,
     private readonly whatsapp: WhatsAppClientService,
     private readonly ai: AiOrchestratorService,
+    private readonly documents: DocumentTranslationService,
+    private readonly telegramAdmin: TelegramAdminService,
   ) {}
 
   async process(
