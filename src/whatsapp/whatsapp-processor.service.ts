@@ -66,7 +66,6 @@ export class WhatsAppProcessorService {
     private readonly mediaStore: MediaStoreService,
     private readonly whatsapp: WhatsAppClientService,
     private readonly ai: AiOrchestratorService,
-    private readonly documents: DocumentTranslationService,
     private readonly telegramAdmin: TelegramAdminService,
   ) {}
 
@@ -205,6 +204,15 @@ if (
   recentJobCount >=
   dailyVideoLimit
 ) {
+  await this.notifyAdmin(
+    contact,
+    '⏳ VİDEO LİMİTİ BLOKLANDI',
+    [
+      `Son 24 saat job sayı: ${recentJobCount}`,
+      `Limit: ${dailyVideoLimit}`,
+    ],
+  );
+
   await this.reply(
     contact,
     [
@@ -257,6 +265,16 @@ if (
 if (
   !imageValidation.isSuitableForAdvertisement
 ) {
+  await this.notifyAdmin(
+    contact,
+    '🚫 ŞƏKİL BLOKLANDI',
+    [
+      `Səbəb: ${imageValidation.reason}`,
+      `MIME: ${media.mimeType}`,
+      `Ölçü: ${media.fileSize} bayt`,
+    ],
+  );
+
   await this.reply(
     contact,
     [
@@ -288,6 +306,16 @@ if (
       pendingImagePath: path,
       pendingImageMime: media.mimeType,
     });
+
+    await this.notifyAdmin(
+      contact,
+      '🖼 MƏHSUL ŞƏKLİ QƏBUL EDİLDİ',
+      [
+        `MIME: ${media.mimeType}`,
+        `Ölçü: ${media.fileSize} bayt`,
+        `Storage: ${path}`,
+      ],
+    );
 
     await this.reply(
       contact,
@@ -413,6 +441,15 @@ if (
     );
 
   if (!adValidation.isAdvertisement) {
+    await this.notifyAdmin(
+      contact,
+      '🚫 AI SORĞUSU BLOKLANDI',
+      [
+        `Sorğu: ${aiText}`,
+        `Səbəb: ${adValidation.reason}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -528,6 +565,16 @@ if (
       providerLabel(
         parsed.provider,
       );
+
+    await this.notifyAdmin(
+      contact,
+      '🚫 PROVIDER AI SORĞUSU BLOKLANDI',
+      [
+        `Provider: ${label}`,
+        `Sorğu: ${parsed.text}`,
+        `Səbəb: ${adValidation.reason}`,
+      ],
+    );
 
     await this.reply(
       contact,
@@ -936,6 +983,15 @@ if (choiceId === 'menu_claude') {
         history,
       });
 
+      await this.notifyAdmin(
+        contact,
+        '🤖 AI REKLAM SORĞUSU',
+        [
+          `Provider: ${result.provider}`,
+          `Sorğu: ${text}`,
+        ],
+      );
+
       await this.reply(
         contact,
         `🤖 AdYarat:\n${result.text}`,
@@ -967,6 +1023,15 @@ if (choiceId === 'menu_claude') {
       contact.state !==
       'awaiting_voice_ad_brief'
     ) {
+      await this.notifyAdmin(
+        contact,
+        '🚫 SƏS MESAJI BLOKLANDI',
+        [
+          `Cari state: ${contact.state}`,
+          'Səbəb: səsli reklam flow-u aktiv deyil.',
+        ],
+      );
+
       await this.reply(
         contact,
         [
@@ -1074,6 +1139,15 @@ if (choiceId === 'menu_claude') {
     );
 
   if (!adValidation.isAdvertisement) {
+    await this.notifyAdmin(
+      contact,
+      '🚫 REKLAM MƏTNİ SORĞUSU BLOKLANDI',
+      [
+        `Sorğu: ${cleanBrief}`,
+        `Səbəb: ${adValidation.reason}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -1132,6 +1206,17 @@ if (choiceId === 'menu_claude') {
       {
         state: 'new',
       },
+    );
+
+    await this.notifyAdmin(
+      contact,
+      '✍️ REKLAM MƏTNİ HAZIRLANDI',
+      [
+        `Sorğu: ${cleanBrief}`,
+        `Provider: ${result.provider}`,
+        `Məhsul/Xidmət: ${adValidation.productOrService ?? 'Müəyyən edilmədi'}`,
+        `Məqsəd: ${adValidation.goal ?? 'Müəyyən edilmədi'}`,
+      ],
     );
 
     await this.reply(
@@ -1202,6 +1287,15 @@ if (choiceId === 'menu_claude') {
     );
 
   if (!adValidation.isAdvertisement) {
+    await this.notifyAdmin(
+      contact,
+      '🚫 SƏSLİ REKLAM SORĞUSU BLOKLANDI',
+      [
+        `Mətn: ${voiceText}`,
+        `Səbəb: ${adValidation.reason}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -1230,6 +1324,16 @@ if (choiceId === 'menu_claude') {
       {
         state: 'new',
       },
+    );
+
+    await this.notifyAdmin(
+      contact,
+      '🎙 SƏSLİ REKLAM QƏBUL EDİLDİ',
+      [
+        `Mətn: ${voiceText}`,
+        `Məhsul/Xidmət: ${adValidation.productOrService ?? 'Müəyyən edilmədi'}`,
+        `Məqsəd: ${adValidation.goal ?? 'Müəyyən edilmədi'}`,
+      ],
     );
 
     await this.reply(
@@ -1382,6 +1486,16 @@ private async createVideoJob(
     recentJobCount >=
     dailyVideoLimit
   ) {
+    await this.notifyAdmin(
+      contact,
+      '⏳ VİDEO LİMİTİ BLOKLANDI',
+      [
+        `Son 24 saat job sayı: ${recentJobCount}`,
+        `Limit: ${dailyVideoLimit}`,
+        `Sorğu: ${rawText}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -1425,6 +1539,15 @@ private async createVideoJob(
         videoCooldownSeconds -
         elapsedSeconds;
 
+      await this.notifyAdmin(
+        contact,
+        '⏱ VİDEO COOLDOWN BLOKLANDI',
+        [
+          `Qalan vaxt: ${remainingSeconds} saniyə`,
+          `Sorğu: ${rawText}`,
+        ],
+      );
+
       await this.reply(
         contact,
         [
@@ -1466,6 +1589,15 @@ private async createVideoJob(
     );
 
   if (!adValidation.isAdvertisement) {
+    await this.notifyAdmin(
+      contact,
+      '🚫 VİDEO SORĞUSU BLOKLANDI',
+      [
+        `Sorğu: ${rawText}`,
+        `Səbəb: ${adValidation.reason}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -1499,6 +1631,15 @@ private async createVideoJob(
   if (
     !imagePromptValidation.isRelevant
   ) {
+    await this.notifyAdmin(
+      contact,
+      '🚫 ŞƏKİL + PROMPT UYĞUNLUĞU BLOKLANDI',
+      [
+        `Sorğu: ${rawText}`,
+        `Səbəb: ${imagePromptValidation.reason}`,
+      ],
+    );
+
     await this.reply(
       contact,
       [
@@ -1569,6 +1710,19 @@ private async createVideoJob(
     {
       state: 'processing',
     },
+  );
+
+  await this.notifyAdmin(
+    contact,
+    '🎬 YENİ VİDEO REKLAM SORĞUSU',
+    [
+      `⏱ Müddət: ${selectedDuration} saniyə`,
+      `🎞 Səhnə sayı: ${sceneCount}`,
+      `📝 Sorğu: ${rawText}`,
+      `🏷 Məhsul/Xidmət: ${adValidation.productOrService ?? 'Müəyyən edilmədi'}`,
+      `🎯 Məqsəd: ${adValidation.goal ?? 'Müəyyən edilmədi'}`,
+      '📌 Status: queued',
+    ],
   );
 
   await this.reply(
@@ -1789,6 +1943,15 @@ private async createVideoJob(
         {
           state: 'new',
         },
+      );
+
+      await this.notifyAdmin(
+        contact,
+        '🆘 YENİ DƏSTƏK MÜRACİƏTİ',
+        [
+          `Problem: ${problem}`,
+          `İstifadəçi ID: ${customerReference}`,
+        ],
       );
 
       await this.reply(
@@ -2017,6 +2180,22 @@ private async createVideoJob(
           : 'assistant',
       text: text.trim(),
     };
+  }
+
+  private async notifyAdmin(
+    contact: Contact,
+    title: string,
+    lines: string[] = [],
+  ): Promise<void> {
+    await this.telegramAdmin.sendMessage(
+      [
+        title,
+        '',
+        `👤 İstifadəçi: ${contact.profileName ?? 'Adsız istifadəçi'}`,
+        `📱 WhatsApp: ${contact.waId}`,
+        ...(lines.length ? ['', ...lines] : []),
+      ].join('\n'),
+    );
   }
 
   private async reply(
