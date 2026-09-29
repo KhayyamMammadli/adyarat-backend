@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TelegramModule } from './telegram/telegram.module';
 import { ConfigModule } from '@nestjs/config';
 import { AiModule } from './ai/ai.module';
 import { AppController } from './app.controller';
@@ -10,17 +11,18 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      cache: true,
-      validate: validateEnvironment,
-    }),
-    AiModule,
-    SupabaseModule,
-    MediaModule,
-    WhatsAppModule,
-    VideoModule,
-  ],
+  ConfigModule.forRoot({
+    isGlobal: true,
+    cache: true,
+    validate: validateEnvironment,
+  }),
+  AiModule,
+  SupabaseModule,
+  MediaModule,
+  WhatsAppModule,
+  VideoModule,
+  TelegramModule,
+],,
   controllers: [AppController],
 })
 export class AppModule {}
