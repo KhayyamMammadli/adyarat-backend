@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+
 import { AiModule } from '../ai/ai.module';
+import { TelegramModule } from '../telegram/telegram.module';
+
 import { WhatsAppClientService } from './whatsapp-client.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppProcessorService } from './whatsapp-processor.service';
@@ -7,7 +10,10 @@ import { WhatsAppWebhookWorker } from './whatsapp-webhook.worker';
 import { WebhookSecurityService } from './webhook-security.service';
 
 @Module({
-  imports: [AiModule],
+  imports: [
+    AiModule,
+    TelegramModule,
+  ],
 
   controllers: [
     WhatsAppController,
