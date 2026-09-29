@@ -1135,72 +1135,134 @@ if (choiceId === 'menu_claude') {
     }
   }
 
-  private async createAdCopy(
-    contact: Contact,
-    brief: string,
-  ): Promise<void> {
-    if (brief.length < 10) {
-      await this.reply(
-        contact,
-        'Məlumatı bir az daha ətraflı yazın. Məhsulun adı, üstünlüyü və kimlər üçün olduğunu qeyd edin.',
-      );
-      return;
-    }
+ private async createAdCopy(
+  contact: Contact,
+  brief: string,
+): Promise<void> {
+  const cleanBrief =
+    brief.trim();
 
-    try {
-      await this.reply(
-        contact,
-        '✍️ Məlumat alındı. Reklam mətniniz hazırlanır...',
-      );
+  if (cleanBrief.length < 10) {
+    await this.reply(
+      contact,
+      'Məlumatı bir az daha ətraflı yazın. Məhsulun adı, üstünlüyü və kimlər üçün olduğunu qeyd edin.',
+    );
+    return;
+  }
 
-      const result = await this.ai.answer({
-        text: brief,
+  const adValidation =
+    await this.ai.validateAdvertisementRequest(
+      cleanBrief,
+    );
+
+  if (!adValidation.isAdvertisement) {
+    await this.reply(
+      contact,
+      [
+        '🚫 Göndərdiyiniz məlumat reklam məqsədli kimi qəbul edilmədi.',
+        '',
+        'Reklam mətni hazırlamaq üçün məhsul, xidmət, biznes, brend və ya kampaniya haqqında məlumat yazın.',
+        '',
+        'Məsələn:',
+        '“Bakıda fəaliyyət göstərən kofe dükanı üçün premium Instagram reklam mətni hazırla.”',
+        '',
+        `Səbəb: ${adValidation.reason}`,
+      ].join('\n'),
+    );
+
+    return;
+  }
+
+  try {
+    await this.reply(
+      contact,
+      '✍️ Məlumat alındı. Reklam mətniniz hazırlanır...',
+    );
+
+    const result =
+      await this.ai.answer({
+        text: cleanBrief,
+
         maxOutputTokens: 900,
+
         systemInstruction: [
           'Sən Azərbaycan bazarı üçün peşəkar reklam kopirayterisən.',
-          'İstifadəçinin məhsul və ya xidmət məlumatına əsasən hazır reklam paketi yaz.',
+          'AdYarat yalnız reklam və kommersiya məqsədli məzmun hazırlayır.',
+          'İstifadəçinin məhsul, xidmət, biznes, brend və ya kampaniya məlumatına əsasən hazır reklam paketi yaz.',
           'Cavab yalnız Azərbaycan dilində olsun.',
+          '',
           'Bu quruluşu saxla:',
           '🎯 Başlıq:',
           '📝 Reklam mətni:',
           '📣 Çağırış:',
           '📱 Sosial media paylaşımı:',
           '#️⃣ Hashtag-lər:',
-          'Fakt uydurma, verilməyən qiymət və kampaniya əlavə etmə.',
+          '',
+          'Qaydalar:',
+          '- yalnız istifadəçinin verdiyi məlumatlardan istifadə et;',
+          '- fakt uydurma;',
+          '- verilməyən qiymət əlavə etmə;',
+          '- verilməyən endirim və kampaniya uydurma;',
+          '- məhsul və ya xidmət haqqında əsassız iddia yazma;',
+          '- reklam məqsədindən kənar məzmun yaratma;',
+          '- mətni satış və təqdimat yönümlü saxla.',
         ].join('\n'),
       });
 
-      await this.dataStore.updateContact(
-        contact.id,
-        {
-          state: 'new',
+    await this.dataStore.updateContact(
+      contact.id,
+      {
+        state: 'new',
+      },
+    );
+
+    await this.reply(
+      contact,
+      [
+        '✍️ Reklam mətniniz hazırdır:',
+        '',
+        result.text,
+      ].join('\n'),
+      {
+        provider:
+          result.provider,
+
+        task:
+          'ad-copy',
+
+        brief:
+          cleanBrief,
+
+        validation: {
+          productOrService:
+            adValidation.productOrService,
+
+          goal:
+            adValidation.goal,
         },
-      );
+      },
+    );
 
-      await this.reply(
-        contact,
-        `✍️ Reklam mətniniz hazırdır:\n\n${result.text}`,
-        {
-          provider: result.provider,
-          task: 'ad-copy',
-          brief,
-        },
-      );
+    await this.sendQuickActions(
+      contact,
+    );
+  } catch (error) {
+    this.logger.warn(
+      `Ad copy generation failed: ${this.errorMessage(
+        error,
+      )}`,
+    );
 
-      await this.sendQuickActions(contact);
-    } catch (error) {
-      this.logger.warn(
-        `Ad copy generation failed: ${this.errorMessage(error)}`,
-      );
+    await this.reply(
+      contact,
+      'Reklam mətni hazırda yaradıla bilmədi. Məlumatı bir az sonra yenidən göndərin.',
+    );
 
-      await this.reply(
-        contact,
-        'Reklam mətni hazırda yaradıla bilmədi. Məlumatı bir az sonra yenidən göndərin.',
-      );
-
-      await this.sendQuickActions(contact);
-    }
+    await this.sendQuickActions(
+      contact,
+    );
   }
+}
 
   private async createVoiceAd(
   contact: Contact,
@@ -1213,6 +1275,29 @@ if (choiceId === 'menu_claude') {
       contact,
       'Mətni bir az daha ətraflı göndərin.',
     );
+    return;
+  }
+
+  const adValidation =
+    await this.ai.validateAdvertisementRequest(
+      voiceText,
+    );
+
+  if (!adValidation.isAdvertisement) {
+    await this.reply(
+      contact,
+      [
+        '🚫 Göndərdiyiniz mətn reklam məqsədli kimi qəbul edilmədi.',
+        '',
+        'Səsli reklam yalnız məhsul, xidmət, biznes, brend və kampaniya üçün hazırlana bilər.',
+        '',
+        'Məsələn:',
+        '“Yeni açılan kofe dükanımızı tanıdan qısa reklam mətni.”',
+        '',
+        `Səbəb: ${adValidation.reason}`,
+      ].join('\n'),
+    );
+
     return;
   }
 
@@ -1241,6 +1326,12 @@ if (choiceId === 'menu_claude') {
       {
         task: 'voice-ad-script',
         brief: voiceText,
+        validation: {
+          productOrService:
+            adValidation.productOrService,
+          goal:
+            adValidation.goal,
+        },
       },
     );
 
@@ -1265,9 +1356,16 @@ if (choiceId === 'menu_claude') {
         direction: 'outbound',
         type: 'audio',
         content: {
-          provider: speech.provider,
-          task: 'voice-ad',
-          text: voiceText,
+          provider:
+            speech.provider,
+          task:
+            'voice-ad',
+          text:
+            voiceText,
+          productOrService:
+            adValidation.productOrService,
+          goal:
+            adValidation.goal,
         },
         status: 'sent',
       });
@@ -1280,11 +1378,13 @@ if (choiceId === 'menu_claude') {
 
       await this.reply(
         contact,
-        'Mətn hazırdır, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
+        'Mətn qəbul edildi, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
       );
     }
 
-    await this.sendQuickActions(contact);
+    await this.sendQuickActions(
+      contact,
+    );
   } catch (error) {
     this.logger.warn(
       `Voice ad generation failed: ${this.errorMessage(
@@ -1297,7 +1397,9 @@ if (choiceId === 'menu_claude') {
       'Səsli reklam hazırda yaradıla bilmədi. Mətni bir az sonra yenidən göndərin.',
     );
 
-    await this.sendQuickActions(contact);
+    await this.sendQuickActions(
+      contact,
+    );
   }
 }
 private async createVideoJob(
