@@ -400,15 +400,47 @@ if (
     }
 
     if (command.startsWith('/ai ')) {
-      await this.handleAiChat(
-        contact,
-        message.id,
-        rawText
-          .slice(rawText.indexOf(' ') + 1)
-          .trim(),
-      );
-      return;
-    }
+  const aiText =
+    rawText
+      .slice(
+        rawText.indexOf(' ') + 1,
+      )
+      .trim();
+
+  const adValidation =
+    await this.ai.validateAdvertisementRequest(
+      aiText,
+    );
+
+  if (!adValidation.isAdvertisement) {
+    await this.reply(
+      contact,
+      [
+        '🚫 AdYarat AI yalnız reklam və biznes mövzularında kömək edir.',
+        '',
+        'Məsələn:',
+        '• məhsul üçün reklam ideyası;',
+        '• reklam mətni;',
+        '• kampaniya ideyası;',
+        '• sosial media reklamı;',
+        '• məhsul təqdimatı;',
+        '• video reklam ssenarisi.',
+        '',
+        `Səbəb: ${adValidation.reason}`,
+      ].join('\n'),
+    );
+
+    return;
+  }
+
+  await this.handleAiChat(
+    contact,
+    message.id,
+    aiText,
+  );
+
+  return;
+}
 
     if (command === '/ai') {
       await this.reply(
