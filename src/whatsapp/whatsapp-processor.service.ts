@@ -19,8 +19,6 @@ import {
   splitText,
 } from '../ai/ai.utils';
 
-import { DocumentTranslationService } from '../ai/document-translation.service';
-
 import {
   Contact,
   ConversationMessage,
@@ -67,7 +65,6 @@ export class WhatsAppProcessorService {
     private readonly mediaStore: MediaStoreService,
     private readonly whatsapp: WhatsAppClientService,
     private readonly ai: AiOrchestratorService,
-    private readonly documents: DocumentTranslationService,
   ) {}
 
   async process(
@@ -164,7 +161,7 @@ export class WhatsAppProcessorService {
 
     await this.reply(
       contact,
-      'Bu mesaj növü hələ dəstəklənmir. Mətn, şəkil, səs, PDF, DOCX və ya TXT göndərin.',
+      'Bu mesaj növü dəstəklənmir. AdYarat reklam üçün mətn, məhsul şəkli və səsli reklam məlumatı qəbul edir.',
     );
   }
 
@@ -470,9 +467,21 @@ if (
     }
 
     if (command === '/voice') {
+      await this.dataStore.updateContact(
+        contact.id,
+        {
+          state: 'awaiting_voice_ad_brief',
+        },
+      );
+
       await this.reply(
         contact,
-        '🎙️ Səs mesajını bu söhbətə göndərin. Onu avtomatik olaraq mətnə çevirəcəyəm.',
+        [
+          '🎙 Səsli reklam hazırlayaq.',
+          '',
+          'Məhsul və ya xidmət haqqında reklam məlumatını mətn və ya səs mesajı kimi göndərin.',
+          'AdYarat yalnız reklam məqsədli məzmunu qəbul edəcək.',
+        ].join('\n'),
       );
       return;
     }
@@ -480,7 +489,11 @@ if (
     if (command === '/translate') {
       await this.reply(
         contact,
-        '📚 PDF, DOCX və ya TXT sənədini göndərin. Tərcümə dilini sənədin açıqlamasında yaza bilərsiniz.',
+        [
+          '🚫 Sənəd tərcüməsi AdYarat-da aktiv deyil.',
+          '',
+          'AdYarat yalnız reklam videosu, reklam mətni, səsli reklam və reklam/biznes ideyaları hazırlayır.',
+        ].join('\n'),
       );
       return;
     }
@@ -492,11 +505,11 @@ if (
 
       await this.reply(
         contact,
-        `🤖 ${label} ilə danışmaq üçün komandanın yanında sualınızı yazın.\nMəsələn: /${
+        `🤖 ${label} ilə reklam və biznes mövzusunda danışmaq üçün komandanın yanında sualınızı yazın.\nMəsələn: /${
           parsed.provider === 'openai'
             ? 'chatgpt'
             : parsed.provider
-        } Bakı haqqında qısa məlumat ver`,
+        } restoran üçün Instagram reklam kampaniyası ideyası ver`,
       );
       return;
     }
@@ -846,9 +859,21 @@ if (choiceId === 'menu_claude') {
 }
 
     if (choiceId === 'menu_voice') {
+      await this.dataStore.updateContact(
+        contact.id,
+        {
+          state: 'awaiting_voice_ad_brief',
+        },
+      );
+
       await this.reply(
         contact,
-        '🎙️ Səs mesajını göndərin. Onu mətnə çevirəcəyəm.',
+        [
+          '🎙 Səsli reklam hazırlayaq.',
+          '',
+          'Məhsul və ya xidmət haqqında reklam məlumatını mətn və ya səs mesajı kimi göndərin.',
+          'AdYarat yalnız reklam məqsədli məzmunu qəbul edəcək.',
+        ].join('\n'),
       );
       return;
     }
@@ -856,7 +881,11 @@ if (choiceId === 'menu_claude') {
     if (choiceId === 'menu_translate') {
       await this.reply(
         contact,
-        '📚 PDF, DOCX və ya TXT sənədini göndərin. İstədiyiniz dili sənədin açıqlamasında yazın.',
+        [
+          '🚫 Sənəd tərcüməsi AdYarat-da aktiv deyil.',
+          '',
+          'Bu xidmət yalnız reklam yaradılması üçün nəzərdə tutulub.',
+        ].join('\n'),
       );
       return;
     }
@@ -931,16 +960,26 @@ if (choiceId === 'menu_claude') {
     contact: Contact,
     message: WhatsAppAudioMessage,
   ): Promise<void> {
-    try {
-      const isVoiceAdBrief =
-        contact.state ===
-        'awaiting_voice_ad_brief';
-
+    if (
+      contact.state !==
+      'awaiting_voice_ad_brief'
+    ) {
       await this.reply(
         contact,
-        isVoiceAdBrief
-          ? '🎙 Səsli məlumat alındı. Reklam ssenarisi hazırlanır...'
-          : '🎙️ Səs alındı. Mətnə çevirirəm...',
+        [
+          '🎙 Səs mesajları yalnız səsli reklam hazırlamaq üçün qəbul edilir.',
+          '',
+          'Əvvəlcə menyudan “Səsli reklam” seçin və ya /voice yazın.',
+          'Sonra məhsul və ya xidmət haqqında reklam məlumatını səs mesajı kimi göndərin.',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    try {
+      await this.reply(
+        contact,
+        '🎙 Səsli məlumat alındı. Reklam mətni yoxlanılır...',
       );
 
       const media =
@@ -973,98 +1012,20 @@ if (choiceId === 'menu_claude') {
         )}`,
       );
 
-      if (isVoiceAdBrief) {
-        await this.createVoiceAd(
-          contact,
-          result.text,
-        );
-        return;
-      }
-
-      const translation =
-        await this.ai.translateVoiceCommand(
-          result.text,
-        );
-
-      if (!translation.shouldTranslate) {
-        await this.reply(
-          contact,
-          `📝 Səsin mətni:\n\n${translation.sourceText}\n\nTərcümə üçün səsin sonunda, məsələn, “bu səsi ingilis dilinə çevir” deyin.`,
-          {
-            provider: result.provider,
-            task: 'transcription',
-          },
-        );
-
-        await this.sendQuickActions(contact);
-        return;
-      }
-
-      const targetLanguage =
-        translation.targetLanguage!;
-
-      const translatedText =
-        translation.translatedText!;
-
-      await this.reply(
+      await this.createVoiceAd(
         contact,
-        `🌍 ${targetLanguage} tərcüməsi:\n\n${translatedText}\n\n🔊 Aşağıdakı səs AI tərəfindən yaradılıb.`,
-        {
-          provider: translation.provider,
-          task: 'voice-translation',
-          sourceText: translation.sourceText,
-          targetLanguage,
-        },
+        result.text,
       );
-
-      try {
-        const speech =
-          await this.ai.synthesizeSpeech(
-            translatedText,
-            targetLanguage,
-          );
-
-        const messageId =
-          await this.whatsapp.sendAudio(
-            contact.waId,
-            speech.bytes,
-            speech.mimeType,
-            speech.filename,
-          );
-
-        await this.dataStore.recordMessage({
-          waMessageId: messageId,
-          contactId: contact.id,
-          direction: 'outbound',
-          type: 'audio',
-          content: {
-            provider: speech.provider,
-            task: 'voice-translation',
-            targetLanguage,
-            text: translatedText,
-          },
-          status: 'sent',
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Translated speech generation failed: ${this.errorMessage(error)}`,
-        );
-
-        await this.reply(
-          contact,
-          'Tərcümə mətni hazırdır, amma səs faylı yaradıla bilmədi. Bir az sonra yenidən yoxlayın.',
-        );
-      }
-
-      await this.sendQuickActions(contact);
     } catch (error) {
       this.logger.warn(
-        `Audio transcription failed: ${this.errorMessage(error)}`,
+        `Voice ad audio processing failed: ${this.errorMessage(
+          error,
+        )}`,
       );
 
       await this.reply(
         contact,
-        `Səs mətnə çevrilmədi: ${this.publicError(error)}`,
+        `Səsli reklam məlumatı emal edilmədi: ${this.publicError(error)}`,
       );
 
       await this.sendQuickActions(contact);
@@ -1075,67 +1036,21 @@ if (choiceId === 'menu_claude') {
     contact: Contact,
     message: WhatsAppDocumentMessage,
   ): Promise<void> {
-    try {
-      const filename =
-        message.document.filename ?? 'document';
+    void message;
 
-      await this.reply(
-        contact,
-        '📚 Sənəd alındı. Tərcümə hazırlanır...',
-      );
+    await this.reply(
+      contact,
+      [
+        '🚫 Sənəd emalı və tərcüməsi AdYarat-da aktiv deyil.',
+        '',
+        'AdYarat yalnız reklam videosu, reklam mətni, səsli reklam və reklam/biznes ideyaları hazırlayır.',
+      ].join('\n'),
+    );
 
-      const media =
-        await this.whatsapp.downloadMedia(
-          message.document.id,
-        );
-
-      const translated =
-        await this.documents.translate(
-          media.bytes,
-          media.mimeType,
-          filename,
-          message.document.caption,
-        );
-
-      const messageId =
-        await this.whatsapp.sendDocument(
-          contact.waId,
-          translated.bytes,
-          translated.mimeType,
-          translated.filename,
-          'Tərcümə hazırdır ✅\nAdYarat tərəfindən hazırlanıb.',
-        );
-
-      await this.dataStore.recordMessage({
-        waMessageId: messageId,
-        contactId: contact.id,
-        direction: 'outbound',
-        type: 'document',
-        content: {
-          filename: translated.filename,
-          providers: translated.providers,
-          sourceCharacters:
-            translated.sourceCharacters,
-        },
-        status: 'sent',
-      });
-
-      await this.sendQuickActions(contact);
-    } catch (error) {
-      this.logger.warn(
-        `Document translation failed: ${this.errorMessage(error)}`,
-      );
-
-      await this.reply(
-        contact,
-        `Sənəd tərcümə edilmədi: ${this.publicError(error)}`,
-      );
-
-      await this.sendQuickActions(contact);
-    }
+    await this.sendQuickActions(contact);
   }
 
- private async createAdCopy(
+  private async createAdCopy(
   contact: Contact,
   brief: string,
 ): Promise<void> {
