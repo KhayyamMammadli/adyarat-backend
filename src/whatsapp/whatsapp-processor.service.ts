@@ -502,14 +502,43 @@ if (
     }
 
     if (parsed.provider) {
-      await this.handleAiChat(
-        contact,
-        message.id,
-        parsed.text,
+  const adValidation =
+    await this.ai.validateAdvertisementRequest(
+      parsed.text,
+    );
+
+  if (!adValidation.isAdvertisement) {
+    const label =
+      providerLabel(
         parsed.provider,
       );
-      return;
-    }
+
+    await this.reply(
+      contact,
+      [
+        `🚫 ${label} yalnız reklam və biznes mövzularında istifadə edilə bilər.`,
+        '',
+        'AdYarat ümumi AI çat xidməti deyil.',
+        '',
+        'Məsələn belə yaza bilərsiniz:',
+        `/${parsed.provider === 'openai' ? 'chatgpt' : parsed.provider} restoran üçün reklam kampaniyası ideyası ver`,
+        '',
+        `Səbəb: ${adValidation.reason}`,
+      ].join('\n'),
+    );
+
+    return;
+  }
+
+  await this.handleAiChat(
+    contact,
+    message.id,
+    parsed.text,
+    parsed.provider,
+  );
+
+  return;
+}
 
     if (isVideoIntent(parsed.text)) {
       await this.reply(
