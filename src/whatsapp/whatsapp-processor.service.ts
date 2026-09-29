@@ -781,46 +781,69 @@ if (choiceId.startsWith('video_duration_')) {
       );
       return;
     }
-
     if (choiceId === 'menu_ai') {
-      await this.reply(
-        contact,
-        '🤖 Sualınızı belə yazın: /ai sualınız',
-      );
-      return;
-    }
+  await this.reply(
+    contact,
+    [
+      '🤖 AdYarat AI yalnız reklam və biznes mövzularında işləyir.',
+      '',
+      'Məsələn belə yazın:',
+      '/ai restoran üçün reklam kampaniyası ideyası ver',
+    ].join('\n'),
+  );
+  return;
+}
 
-    if (choiceId === 'quick_ai') {
-      await this.reply(
-        contact,
-        '💬 Sualınızı belə yazın: /ai sualınız',
-      );
-      return;
-    }
+if (choiceId === 'quick_ai') {
+  await this.reply(
+    contact,
+    [
+      '💬 Reklam və biznes mövzusunda sualınızı belə yazın:',
+      '',
+      '/ai məhsulum üçün Instagram reklam ideyası ver',
+    ].join('\n'),
+  );
+  return;
+}
 
-    if (choiceId === 'menu_gemini') {
-      await this.reply(
-        contact,
-        'Gemini ilə danışmaq üçün belə yazın:\n/gemini sualınız',
-      );
-      return;
-    }
+if (choiceId === 'menu_gemini') {
+  await this.reply(
+    contact,
+    [
+      '🤖 Gemini yalnız reklam və biznes mövzularında istifadə edilə bilər.',
+      '',
+      'Məsələn:',
+      '/gemini kafe üçün reklam kampaniyası ideyası ver',
+    ].join('\n'),
+  );
+  return;
+}
 
-    if (choiceId === 'menu_chatgpt') {
-      await this.reply(
-        contact,
-        'ChatGPT ilə danışmaq üçün belə yazın:\n/chatgpt sualınız',
-      );
-      return;
-    }
+if (choiceId === 'menu_chatgpt') {
+  await this.reply(
+    contact,
+    [
+      '🤖 ChatGPT yalnız reklam və biznes mövzularında istifadə edilə bilər.',
+      '',
+      'Məsələn:',
+      '/chatgpt məhsulum üçün reklam mətni hazırla',
+    ].join('\n'),
+  );
+  return;
+}
 
-    if (choiceId === 'menu_claude') {
-      await this.reply(
-        contact,
-        'Claude ilə danışmaq üçün belə yazın:\n/claude sualınız',
-      );
-      return;
-    }
+if (choiceId === 'menu_claude') {
+  await this.reply(
+    contact,
+    [
+      '🤖 Claude yalnız reklam və biznes mövzularında istifadə edilə bilər.',
+      '',
+      'Məsələn:',
+      '/claude yeni xidmət üçün reklam ssenarisi hazırla',
+    ].join('\n'),
+  );
+  return;
+}
 
     if (choiceId === 'menu_voice') {
       await this.reply(
