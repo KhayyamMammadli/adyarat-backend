@@ -161,6 +161,29 @@ interface DbMessage {
   created_at: string;
 }
 
+
+interface AdminEventRecord {
+  id: string;
+  contactId?: string;
+  waId?: string;
+  profileName?: string;
+  eventType: string;
+  prompt?: string;
+  reason?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface RecordAdminEventInput {
+  contactId?: string;
+  waId?: string;
+  profileName?: string;
+  eventType: string;
+  prompt?: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}
+
 @Injectable()
 export class DataStoreService {
   private readonly contacts = new Map<string, Contact>();
@@ -189,6 +212,11 @@ export class DataStoreService {
   private readonly segments = new Map<
     string,
     GenerationSegment
+  >();
+
+  private readonly adminEvents = new Map<
+    string,
+    AdminEventRecord
   >();
 
   constructor(
@@ -2089,6 +2117,627 @@ export class DataStoreService {
     return this.mapSegment(
       data as DbGenerationSegment,
     );
+  }
+
+
+  async recordAdminEvent(
+    input: RecordAdminEventInput,
+  ): Promise<void> {
+    if (!this.supabase.isEnabled()) {
+      const id = randomUUID();
+
+      this.adminEvents.set(id, {
+        id,
+        contactId: input.contactId,
+        waId: input.waId,
+        profileName: input.profileName,
+        eventType: input.eventType,
+        prompt: input.prompt,
+        reason: input.reason,
+        metadata: input.metadata ?? {},
+        createdAt: new Date().toISOString(),
+      });
+
+      return;
+    }
+
+    const { error } =
+      await this.supabase.client
+        .from('admin_events')
+        .insert({
+          contact_id:
+            input.contactId ?? null,
+
+          wa_id:
+            input.waId ?? null,
+
+          profile_name:
+            input.profileName ?? null,
+
+          event_type:
+            input.eventType,
+
+          prompt:
+            input.prompt ?? null,
+
+          reason:
+            input.reason ?? null,
+
+          metadata:
+            input.metadata ?? {},
+        });
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  async getAdminTodayStats(): Promise<{
+    users: number;
+    inboundMessages: number;
+    videos: number;
+    activeVideos: number;
+    blocked: number;
+  }> {
+    const startOfToday =
+      new Date();
+
+    startOfToday.setUTCHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const since =
+      startOfToday.toISOString();
+
+    if (!this.supabase.isEnabled()) {
+      const users =
+        [...this.contacts.values()]
+          .filter(
+            (contact) =>
+              contact.createdAt >= since,
+          ).length;
+
+      const inboundMessages =
+        [...this.messages.values()]
+          .filter(
+            (message) =>
+              message.direction ===
+                'inbound' &&
+              message.createdAt >= since,
+          ).length;
+
+      const todayJobs =
+        [...this.jobs.values()]
+          .filter(
+            (job) =>
+              job.createdAt >= since,
+          );
+
+      const activeVideos =
+        [...this.jobs.values()]
+          .filter(
+            (job) =>
+              job.status === 'queued' ||
+              job.status ===
+                'processing',
+          ).length;
+
+      const blocked =
+        [...this.adminEvents.values()]
+          .filter(
+            (event) =>
+              event.createdAt >= since &&
+              event.eventType.includes(
+                'blocked',
+              ),
+          ).length;
+
+      return {
+        users,
+        inboundMessages,
+        videos: todayJobs.length,
+        activeVideos,
+        blocked,
+      };
+    }
+
+    const [
+      usersResult,
+      messagesResult,
+      videosResult,
+      activeResult,
+      blockedResult,
+    ] = await Promise.all([
+      this.supabase.client
+        .from('wa_contacts')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .gte('created_at', since),
+
+      this.supabase.client
+        .from('wa_messages')
+        .select('wa_message_id', {
+          count: 'exact',
+          head: true,
+        })
+        .eq(
+          'direction',
+          'inbound',
+        )
+        .gte('created_at', since),
+
+      this.supabase.client
+        .from('generation_jobs')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .gte('created_at', since),
+
+      this.supabase.client
+        .from('generation_jobs')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .in(
+          'status',
+          [
+            'queued',
+            'processing',
+          ],
+        ),
+
+      this.supabase.client
+        .from('admin_events')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .ilike(
+          'event_type',
+          '%blocked%',
+        )
+        .gte('created_at', since),
+    ]);
+
+    const error =
+      usersResult.error ??
+      messagesResult.error ??
+      videosResult.error ??
+      activeResult.error ??
+      blockedResult.error;
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      users:
+        usersResult.count ?? 0,
+
+      inboundMessages:
+        messagesResult.count ?? 0,
+
+      videos:
+        videosResult.count ?? 0,
+
+      activeVideos:
+        activeResult.count ?? 0,
+
+      blocked:
+        blockedResult.count ?? 0,
+    };
+  }
+
+  async getRecentAdminEvents(
+    limit = 10,
+    eventType?: string,
+  ): Promise<AdminEventRecord[]> {
+    if (!this.supabase.isEnabled()) {
+      return [
+        ...this.adminEvents.values(),
+      ]
+        .filter(
+          (event) =>
+            !eventType ||
+            event.eventType ===
+              eventType ||
+            (
+              eventType === 'blocked' &&
+              event.eventType.includes(
+                'blocked',
+              )
+            ),
+        )
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(
+              a.createdAt,
+            ),
+        )
+        .slice(0, limit)
+        .map(
+          (event) => ({
+            ...event,
+            metadata: {
+              ...event.metadata,
+            },
+          }),
+        );
+    }
+
+    let query =
+      this.supabase.client
+        .from('admin_events')
+        .select('*')
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          },
+        )
+        .limit(limit);
+
+    if (eventType === 'blocked') {
+      query =
+        query.ilike(
+          'event_type',
+          '%blocked%',
+        );
+    } else if (eventType) {
+      query =
+        query.eq(
+          'event_type',
+          eventType,
+        );
+    }
+
+    const {
+      data,
+      error,
+    } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return (data ?? []).map(
+      (row) => ({
+        id:
+          row.id as string,
+
+        contactId:
+          row.contact_id ??
+          undefined,
+
+        waId:
+          row.wa_id ??
+          undefined,
+
+        profileName:
+          row.profile_name ??
+          undefined,
+
+        eventType:
+          row.event_type as string,
+
+        prompt:
+          row.prompt ??
+          undefined,
+
+        reason:
+          row.reason ??
+          undefined,
+
+        metadata:
+          (
+            row.metadata ?? {}
+          ) as Record<
+            string,
+            unknown
+          >,
+
+        createdAt:
+          row.created_at as string,
+      }),
+    );
+  }
+
+  async getActiveJobsForAdmin(
+    limit = 20,
+  ): Promise<
+    Array<{
+      job: GenerationJob;
+      contact?: Contact;
+    }>
+  > {
+    if (!this.supabase.isEnabled()) {
+      const jobs =
+        [...this.jobs.values()]
+          .filter(
+            (job) =>
+              job.status ===
+                'queued' ||
+              job.status ===
+                'processing',
+          )
+          .sort(
+            (a, b) =>
+              b.createdAt.localeCompare(
+                a.createdAt,
+              ),
+          )
+          .slice(0, limit);
+
+      return jobs.map(
+        (job) => ({
+          job: {
+            ...job,
+          },
+          contact:
+            this.contacts.get(
+              job.contactId,
+            )
+              ? {
+                  ...this.contacts.get(
+                    job.contactId,
+                  )!,
+                }
+              : undefined,
+        }),
+      );
+    }
+
+    const {
+      data,
+      error,
+    } =
+      await this.supabase.client
+        .from('generation_jobs')
+        .select('*')
+        .in(
+          'status',
+          [
+            'queued',
+            'processing',
+          ],
+        )
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          },
+        )
+        .limit(limit);
+
+    if (error) {
+      throw error;
+    }
+
+    const result: Array<{
+      job: GenerationJob;
+      contact?: Contact;
+    }> = [];
+
+    for (const row of data ?? []) {
+      const job =
+        this.mapJob(
+          row as DbGenerationJob,
+        );
+
+      const contact =
+        await this.getContactById(
+          job.contactId,
+        );
+
+      result.push({
+        job,
+        contact,
+      });
+    }
+
+    return result;
+  }
+
+  async getUserAdminHistory(
+    waId: string,
+  ): Promise<{
+    contact?: Contact;
+    messages: ConversationMessage[];
+    jobs: GenerationJob[];
+    events: AdminEventRecord[];
+  }> {
+    const normalizedWaId =
+      waId
+        .trim()
+        .replace(/^\+/, '');
+
+    const contact =
+      await this.getContactByWaId(
+        normalizedWaId,
+      );
+
+    if (!contact) {
+      return {
+        contact: undefined,
+        messages: [],
+        jobs: [],
+        events: [],
+      };
+    }
+
+    const messages =
+      await this.getRecentMessages(
+        contact.id,
+        20,
+      );
+
+    if (!this.supabase.isEnabled()) {
+      const jobs =
+        [...this.jobs.values()]
+          .filter(
+            (job) =>
+              job.contactId ===
+              contact.id,
+          )
+          .sort(
+            (a, b) =>
+              b.createdAt.localeCompare(
+                a.createdAt,
+              ),
+          )
+          .slice(0, 20)
+          .map(
+            (job) => ({
+              ...job,
+            }),
+          );
+
+      const events =
+        [...this.adminEvents.values()]
+          .filter(
+            (event) =>
+              event.contactId ===
+                contact.id ||
+              event.waId ===
+                normalizedWaId,
+          )
+          .sort(
+            (a, b) =>
+              b.createdAt.localeCompare(
+                a.createdAt,
+              ),
+          )
+          .slice(0, 20)
+          .map(
+            (event) => ({
+              ...event,
+              metadata: {
+                ...event.metadata,
+              },
+            }),
+          );
+
+      return {
+        contact,
+        messages,
+        jobs,
+        events,
+      };
+    }
+
+    const [
+      jobsResult,
+      eventsResult,
+    ] = await Promise.all([
+      this.supabase.client
+        .from('generation_jobs')
+        .select('*')
+        .eq(
+          'contact_id',
+          contact.id,
+        )
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          },
+        )
+        .limit(20),
+
+      this.supabase.client
+        .from('admin_events')
+        .select('*')
+        .eq(
+          'wa_id',
+          normalizedWaId,
+        )
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          },
+        )
+        .limit(20),
+    ]);
+
+    if (jobsResult.error) {
+      throw jobsResult.error;
+    }
+
+    if (eventsResult.error) {
+      throw eventsResult.error;
+    }
+
+    const jobs =
+      (
+        jobsResult.data ??
+        []
+      ).map(
+        (row) =>
+          this.mapJob(
+            row as DbGenerationJob,
+          ),
+      );
+
+    const events =
+      (
+        eventsResult.data ??
+        []
+      ).map(
+        (row) => ({
+          id:
+            row.id as string,
+
+          contactId:
+            row.contact_id ??
+            undefined,
+
+          waId:
+            row.wa_id ??
+            undefined,
+
+          profileName:
+            row.profile_name ??
+            undefined,
+
+          eventType:
+            row.event_type as string,
+
+          prompt:
+            row.prompt ??
+            undefined,
+
+          reason:
+            row.reason ??
+            undefined,
+
+          metadata:
+            (
+              row.metadata ??
+              {}
+            ) as Record<
+              string,
+              unknown
+            >,
+
+          createdAt:
+            row.created_at as string,
+        }),
+      );
+
+    return {
+      contact,
+      messages,
+      jobs,
+      events,
+    };
   }
 
   private async setWebhookState(
