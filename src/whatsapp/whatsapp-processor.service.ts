@@ -1216,8 +1216,7 @@ if (choiceId.startsWith('video_duration_')) {
     await this.sendQuickActions(contact);
   }
 }
-
-  private async createVideoJob(
+private async createVideoJob(
   contact: Contact,
   rawText: string,
 ): Promise<void> {
@@ -1258,6 +1257,83 @@ if (choiceId.startsWith('video_duration_')) {
     return;
   }
 
+  const dailyVideoLimit =
+    this.config.get<number>(
+      'DAILY_VIDEO_LIMIT',
+    ) ?? 5;
+
+  const last24Hours =
+    new Date(
+      Date.now() -
+        24 * 60 * 60 * 1000,
+    );
+
+  const recentJobCount =
+    await this.dataStore.countRecentJobs(
+      contact.id,
+      last24Hours,
+    );
+
+  if (
+    recentJobCount >=
+    dailyVideoLimit
+  ) {
+    await this.reply(
+      contact,
+      [
+        '⏳ Gündəlik video limitiniz tamamlanıb.',
+        '',
+        `Son 24 saat ərzində maksimum ${dailyVideoLimit} reklam videosu hazırlamaq olar.`,
+        '',
+        'Limit əvvəlki videoların vaxtı keçdikcə avtomatik yenilənəcək.',
+      ].join('\n'),
+    );
+
+    return;
+  }
+
+  const videoCooldownSeconds =
+    this.config.get<number>(
+      'VIDEO_COOLDOWN_SECONDS',
+    ) ?? 60;
+
+  const latestJob =
+    await this.dataStore.getLatestJob(
+      contact.id,
+    );
+
+  if (latestJob) {
+    const elapsedSeconds =
+      Math.floor(
+        (
+          Date.now() -
+          new Date(
+            latestJob.createdAt,
+          ).getTime()
+        ) / 1000,
+      );
+
+    if (
+      elapsedSeconds <
+      videoCooldownSeconds
+    ) {
+      const remainingSeconds =
+        videoCooldownSeconds -
+        elapsedSeconds;
+
+      await this.reply(
+        contact,
+        [
+          '⏳ Yeni reklam yaratmaq üçün bir az gözləyin.',
+          '',
+          `Təxminən ${remainingSeconds} saniyə sonra yenidən cəhd edə bilərsiniz.`,
+        ].join('\n'),
+      );
+
+      return;
+    }
+  }
+
   if (!contact.pendingImagePath) {
     await this.reply(
       contact,
@@ -1278,71 +1354,68 @@ if (choiceId.startsWith('video_duration_')) {
     );
 
   const isLongVideo =
-  selectedDuration > 10;
+    selectedDuration > 10;
 
-const adValidation =
-  await this.ai.validateAdvertisementRequest(
-    rawText,
-  );
+  const adValidation =
+    await this.ai.validateAdvertisementRequest(
+      rawText,
+    );
 
-if (!adValidation.isAdvertisement) {
-  await this.reply(
-    contact,
-    [
-      '🚫 Bu sorğu reklam videosu kimi qəbul edilmədi.',
-      '',
-      'AdYarat yalnız məhsul, xidmət, biznes, brend, kampaniya və digər reklam məqsədli videolar hazırlayır.',
-      '',
-      'Məsələn belə yazın:',
-      '“Bu fincan üçün premium məhsul reklamı hazırla.”',
-      '',
-      `Səbəb: ${adValidation.reason}`,
-    ].join('\n'),
-  );
+  if (!adValidation.isAdvertisement) {
+    await this.reply(
+      contact,
+      [
+        '🚫 Bu sorğu reklam videosu kimi qəbul edilmədi.',
+        '',
+        'AdYarat yalnız məhsul, xidmət, biznes, brend, kampaniya və digər reklam məqsədli videolar hazırlayır.',
+        '',
+        'Məsələn belə yazın:',
+        '“Bu fincan üçün premium məhsul reklamı hazırla.”',
+        '',
+        `Səbəb: ${adValidation.reason}`,
+      ].join('\n'),
+    );
 
-  return;
-}
+    return;
+  }
 
-const referenceImage =
-  await this.mediaStore.get(
-    contact.pendingImagePath,
-  );
+  const referenceImage =
+    await this.mediaStore.get(
+      contact.pendingImagePath,
+    );
 
-const imagePromptValidation =
-  await this.ai.validateAdvertisementImagePrompt(
-    referenceImage,
-    contact.pendingImageMime ??
-      'image/jpeg',
-    rawText,
-  );
+  const imagePromptValidation =
+    await this.ai.validateAdvertisementImagePrompt(
+      referenceImage,
+      contact.pendingImageMime ??
+        'image/jpeg',
+      rawText,
+    );
 
-if (!imagePromptValidation.isRelevant) {
-  await this.reply(
-    contact,
-    [
-      '🚫 Yazdığınız reklam təsviri göndərdiyiniz şəkillə uyğun deyil.',
-      '',
-      'Video təsviri şəkildəki məhsul, xidmət və ya bizneslə əlaqəli olmalıdır.',
-      '',
-      `Səbəb: ${imagePromptValidation.reason}`,
-      '',
-      'Məsələn:',
-      '“Bu məhsulu premium reklam üslubunda göstər, kamera yavaş-yavaş yaxınlaşsın.”',
-    ].join('\n'),
-  );
+  if (
+    !imagePromptValidation.isRelevant
+  ) {
+    await this.reply(
+      contact,
+      [
+        '🚫 Yazdığınız reklam təsviri göndərdiyiniz şəkillə uyğun deyil.',
+        '',
+        'Video təsviri şəkildəki məhsul, xidmət və ya bizneslə əlaqəli olmalıdır.',
+        '',
+        `Səbəb: ${imagePromptValidation.reason}`,
+        '',
+        'Məsələn:',
+        '“Bu məhsulu premium reklam üslubunda göstər, kamera yavaş-yavaş yaxınlaşsın.”',
+      ].join('\n'),
+    );
 
-  return;
-}
+    return;
+  }
 
-const prompt =
-  await this.ai.enhanceVideoPrompt(
-    rawText,
-  );
-
-const prompt =
-  await this.ai.enhanceVideoPrompt(
-    rawText,
-  );
+  const prompt =
+    await this.ai.enhanceVideoPrompt(
+      rawText,
+    );
 
   await this.dataStore.createJob({
     contactId: contact.id,
