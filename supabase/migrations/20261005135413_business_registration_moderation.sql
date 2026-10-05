@@ -86,6 +86,9 @@ language plpgsql security invoker set search_path = '' as $$
 declare e public.employer_profiles%rowtype;
 begin
   if new.source <> 'whatsapp' then return new; end if;
+  -- Safe pre-deploy migration: the currently deployed legacy bot has no marker.
+  -- New code stamps inserts and moderation submissions with version 1.
+  if coalesce(new.metadata->>'business_registration_version','') <> '1' then return new; end if;
   if tg_op='UPDATE' and (new.status<>'pending' or old.status=new.status) then return new; end if;
   select * into e from public.employer_profiles where profile_id=(new.metadata->>'employer_profile_id')::uuid for share;
   if not found or e.registration_status is distinct from 'approved' or e.verified is distinct from true or e.voen_verified_at is null

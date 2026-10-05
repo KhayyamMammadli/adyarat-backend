@@ -54,7 +54,7 @@ test('migration preserves users, privately stores photos and enforces unique nor
     await db.exec('set role service_role');
     await assert.rejects(
       q(
-        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text,'business_registration_version',1))",
         [id1],
       ),
       (e) => e.code === '23514',
@@ -102,7 +102,7 @@ test('migration preserves users, privately stores photos and enforces unique nor
       [id1],
     );
     await q(
-      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text,'business_registration_version',1))",
       [id1],
     );
     await q('select public.claim_job_profile_contact($1,$2,$3)', [id1, 'new@example.com', null]);
@@ -205,7 +205,7 @@ test('manual review migration distinguishes pending format from audited admin ve
     );
     await assert.rejects(
       db.query(
-        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text,'business_registration_version',1))",
         [id1],
       ),
       (e) => e.code === '23514',
@@ -222,13 +222,35 @@ test('manual review migration distinguishes pending format from audited admin ve
       [id1],
     );
     await db.query(
-      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text,'business_registration_version',1))",
       [id1],
     );
     const e = (await db.query('select * from public.employer_profiles where profile_id=$1', [id1]))
       .rows[0];
     assert.equal(e.voen_verified_by, '7');
     assert.equal(e.voen_verification_method, 'admin_manual');
+  } finally {
+    await db.close();
+  }
+});
+
+test('staged migration keeps the currently deployed legacy bot working before new code is released', async () => {
+  const db = await database();
+  try {
+    await db.exec(migration);
+    await db.exec(manualMigration);
+    await db.query(
+      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+      [id1],
+    );
+    await db.query("update public.jobs set status='pending' where source='whatsapp'");
+    await assert.rejects(
+      db.query(
+        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text,'business_registration_version',1))",
+        [id1],
+      ),
+      (e) => e.code === '23514',
+    );
   } finally {
     await db.close();
   }

@@ -163,6 +163,7 @@ test('profile preview and submit create no job; admin approval alone unlocks Add
   await f.text('Cashier');
   assert.equal(f.tables.jobs.length, 1);
   assert.equal(f.tables.jobs[0].status, 'draft');
+  assert.equal(f.tables.jobs[0].metadata.business_registration_version, 1);
 });
 test('stale business decisions are idempotent and rejection keeps business locked', async () => {
   const f = fixture();

@@ -284,7 +284,7 @@ export class JobAgentService {
           company_name: employer?.company_name,
           status: 'draft',
           contact_email: profile.contact_email,
-          metadata: { employer_profile_id: profile.id },
+          metadata: { employer_profile_id: profile.id, business_registration_version: 1 },
         })
         .select('*')
         .single();
@@ -627,7 +627,10 @@ export class JobAgentService {
       await this.prompt(waId, '📍 İş yerinin dəqiq lokasiyasını göndərin.');
       return;
     }
-    await this.updateDraft(profileId, { status: 'pending' });
+    await this.updateDraft(profileId, {
+      status: 'pending',
+      metadata: { ...(job.metadata ?? {}), business_registration_version: 1 },
+    });
     await this.setState(profileId, 'ready');
     await this.telegram.sendMessage(
       `📋 Yeni vakansiya moderasiyaya göndərildi\n${formatTelegramJob(job)}`,

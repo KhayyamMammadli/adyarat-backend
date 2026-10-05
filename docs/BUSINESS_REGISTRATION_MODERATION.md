@@ -62,4 +62,6 @@ Yeni testlər business flow, registry unavailable/not-found/malformed/mismatched
 
 PGlite-də ayrıca PostgreSQL migration testləri həqiqi constraint/RPC/trigger icrası ilə backfill, case/phone normalization, duplicate rejection, identity changes, service-only function privilege, Telegram exemption və rollback zamanı data qorunmasını yoxlayır. Bu isolated test bazasıdır; production data dəyişmir.
 
-Yekun lokal nəticə: typecheck keçdi, build keçdi, 144/144 test keçdi; Nest application context startup/DI yoxlaması keçdi.
+Yekun lokal nəticə: typecheck keçdi, build keçdi, 145/145 test keçdi; Nest application context startup/DI yoxlaması keçdi.
+
+Release uyğunluğu: migration köhnə production botun markersiz elanlarını bloklamır. Yeni kod həm INSERT, həm də pending status keçidində `business_registration_version=1` metadata marker-i yazır; DB trigger bu elanlarda təsdiqlənmiş biznes tələb edir. Beləliklə DB migration-ları əvvəl, yeni kod deploy-u sonra tətbiq oluna bilər. Mövcud elanlar silinmir və statusları dəyişdirilmir.
