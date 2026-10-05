@@ -23,3 +23,14 @@ create or replace function public.jobs_within_radius(
 $$;
 revoke all on function public.jobs_within_radius(double precision,double precision,double precision,boolean) from public, anon, authenticated;
 grant execute on function public.jobs_within_radius(double precision,double precision,double precision,boolean) to service_role;
+
+-- Job Agent has no public Supabase client: all app access uses the server secret.
+-- Protect identity, phone/GPS, preferences, Telegram sessions and moderation drafts.
+alter table public.employer_profiles enable row level security;
+alter table public.job_agent_profiles enable row level security;
+alter table public.job_seeker_preferences enable row level security;
+alter table public.jobs enable row level security;
+revoke all on public.employer_profiles, public.job_agent_profiles,
+  public.job_seeker_preferences, public.jobs from anon, authenticated;
+grant select, insert, update on public.employer_profiles, public.job_agent_profiles,
+  public.job_seeker_preferences, public.jobs to service_role;

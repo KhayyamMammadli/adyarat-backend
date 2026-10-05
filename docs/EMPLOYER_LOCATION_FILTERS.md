@@ -20,6 +20,9 @@ Read-only inspection of connected Supabase project `jsghasqmddbyauygfvno`:
 - Existing WhatsApp webhook handled text/interactive messages but not location.
   Existing employer required phone; Telegram creation requested only a text address.
   Shared active/matching queries were source independent and did not use radius.
+- Existing Job Agent tables had RLS disabled and anon/authenticated table grants.
+  All repo Job Agent consumers use the server secret/service-role client; there
+  is no supported anonymous frontend accessing these private tables.
 - Existing Render main auto-deployment and collector configuration are unchanged.
   No deployment, DB mutation or real outbound message was performed for this work.
 
@@ -27,11 +30,12 @@ Read-only inspection of connected Supabase project `jsghasqmddbyauygfvno`:
 
 `supabase/migrations/20261005123525_employer_location_filters.sql` is additive:
 
-| Object             | Change                                                               |
-| ------------------ | -------------------------------------------------------------------- |
-| employer_profiles  | nullable `voen text`, `email text`                                   |
-| job_agent_profiles | `browse_filters jsonb NOT NULL DEFAULT '{}'`                         |
-| jobs_within_radius | SQL function returning canonical `jobs` rows with Haversine distance |
+| Object             | Change                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| employer_profiles  | nullable `voen text`, `email text`                                                         |
+| job_agent_profiles | `browse_filters jsonb NOT NULL DEFAULT '{}'`                                               |
+| Job Agent tables   | enable RLS and revoke anon/authenticated access; preserve server-role SELECT/INSERT/UPDATE |
+| jobs_within_radius | SQL function returning canonical `jobs` rows with Haversine distance                       |
 
 No new tables; no jobs/profiles are removed, relabelled, or backfilled with invented
 locations/credentials. Coordinates reuse the existing jobs fields. Address is
@@ -39,8 +43,14 @@ stored in location_name, from native location/venue when supplied, otherwise fro
 previously entered city/address. No reverse geocoding or external map API key.
 
 The radius function uses SECURITY INVOKER, empty search_path, restricted execution
-(service_role only), input bounds and active/unexpired checks. Its output receives
-normal PostgREST title/category/city/work-mode/salary/skills filters and stable
+(service_role only), input bounds and active/unexpired checks. Existing Job Agent tables also receive RLS and anonymous/authenticated grant
+revocation to protect VÖEN/email, phone/GPS, preferences, Telegram sessions and
+drafts. Server secret/service-role access is retained. Any undocumented public
+Supabase consumer of these tables would need an explicitly designed policy/API;
+none exists in this repo. Production permissions are not changed by committing
+this migration.
+
+Its output receives normal PostgREST title/category/city/work-mode/salary/skills filters and stable
 ordering BEFORE range/pagination. Old jobs without GPS remain in ordinary lists;
 they cannot satisfy an explicit radius filter. A new global NOT NULL constraint
 would invalidate old records and collector records, so human-flow requirements
