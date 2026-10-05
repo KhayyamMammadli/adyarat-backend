@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { errorMessage } from '../common/errors';
+import { JobAgentWebhookService } from '../job-agent/job-agent-webhook.service';
 import { DataStoreService } from '../supabase/data-store.service';
-import { WhatsAppProcessorService } from './whatsapp-processor.service';
 import { WhatsAppWebhookPayload } from './whatsapp.types';
 
 @Injectable()
@@ -14,7 +14,7 @@ export class WhatsAppWebhookWorker implements OnModuleInit, OnApplicationShutdow
   constructor(
     private readonly config: ConfigService,
     private readonly dataStore: DataStoreService,
-    private readonly processor: WhatsAppProcessorService,
+    private readonly processor: JobAgentWebhookService,
   ) {}
 
   onModuleInit(): void {

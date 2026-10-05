@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AiModule } from './ai/ai.module';
 import { AppController } from './app.controller';
 import { validateEnvironment } from './common/environment';
+import { JobAgentModule } from './job-agent/job-agent.module';
 import { MediaModule } from './media/media.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -21,6 +22,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     SupabaseModule,
     MediaModule,
     WhatsAppModule,
+    JobAgentModule,
     VideoModule,
     TelegramModule,
   ],
