@@ -1,3 +1,9 @@
+import {
+  activeVacancies,
+  matchingVacancies,
+  completePreference,
+  filterLike,
+} from './vacancy-query';
 import { moderationButtons, formatTelegramJob } from '../telegram/job-message';
 import { Injectable } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -27,7 +33,9 @@ type Vacancy = {
   description?: string;
   contact_phone?: string;
   contact_email?: string;
-  metadata?: Record<string, unknown>;
+  source?: string;
+  source_url?: string;
+  metadata?: Record<string, any>;
 };
 
 @Injectable()
@@ -308,11 +316,7 @@ export class JobAgentService {
     await this.whatsapp.sendJobMainMenu(waId);
   }
   private activeJobs() {
-    return this.supabase.client
-      .from('jobs')
-      .select('*')
-      .eq('status', 'active')
-      .or(`expires_at.is.null,expires_at.gt.${this.now()}`);
+    return activeVacancies(this.supabase.client);
   }
   private async sendJobs(
     waId: string,
@@ -323,11 +327,7 @@ export class JobAgentService {
     let query = this.activeJobs();
     if (mode === 'matches') {
       const pref = await this.preference(profileId);
-      if (
-        (!pref?.desired_title && !pref?.category_id) ||
-        !pref?.location_name ||
-        pref.salary_min == null
-      ) {
+      if (!completePreference(pref)) {
         await this.whatsapp.sendJobButtons(
           waId,
           'Uyğun vakansiyalar üçün əvvəl iş profilinizi tamamlayın.',
@@ -335,26 +335,7 @@ export class JobAgentService {
         );
         return;
       }
-      if (pref.category_id && pref.desired_title) {
-        query = query.or(
-          `category_id.eq.${Number(pref.category_id)},title.ilike.${this.filterLike(pref.desired_title)}`,
-        );
-      } else if (pref.category_id) query = query.eq('category_id', pref.category_id);
-      else query = query.ilike('title', `%${this.literalLike(pref.desired_title)}%`);
-      // The exception belongs to the vacancy, not to all modes selected by the seeker.
-      const city = pref.location_name.trim();
-      const cities = /^(bakı|baki|baku)$/i.test(city) ? ['Bakı', 'Baki', 'Baku'] : [city];
-      query = query.or(
-        [
-          'work_mode.eq.remote',
-          ...cities.map((name) => `location_name.ilike.${this.filterLike(name)}`),
-        ].join(','),
-      );
-      if (pref.work_modes?.length) query = query.in('work_mode', pref.work_modes);
-      query = query.eq('salary_currency', pref.salary_currency ?? 'AZN');
-      query = query.or(
-        `salary_max.gte.${Number(pref.salary_min)},and(salary_max.is.null,salary_min.gte.${Number(pref.salary_min)})`,
-      );
+      query = matchingVacancies(this.supabase.client, pref);
     }
     const { data, error } = await query
       .order('created_at', { ascending: false })
@@ -428,11 +409,11 @@ export class JobAgentService {
       : 'Maaş göstərilməyib';
   }
   private formatJob(job: Vacancy): string {
-    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}`;
+    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}${job.source_url ? `\n🔗 Mənbə: ${(job.source ?? '').slice(0, 40)}\n${job.source_url.slice(0, 1000)}` : ''}${job.metadata?.requirements ? `\nTələblər: ${String(job.metadata.requirements).slice(0, 400)}` : ''}`;
   }
   private filterLike(value: string): string {
     // Quoted PostgREST values keep commas/parentheses in user input out of its grammar.
-    return JSON.stringify(`%${this.literalLike(value)}%`);
+    return filterLike(value);
   }
   private literalLike(value: string): string {
     return value.replace(/[\\%_]/g, '\\$&');
