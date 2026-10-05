@@ -45,7 +45,9 @@ No credentials or environment settings are changed.
 ## Browsing and moderation
 
 All vacancies lists active, unexpired rows without seeker filters. Matching needs
-a completed profile and filters title, city (except remote), work mode and salary.
+a completed profile and filters title/category, city (except remote vacancies), work mode and salary.
+Bakı/Baki/Baku city spellings are treated as aliases; salaries must use the profile currency.
+Each page also sends a visible text preview before its interactive picker.
 Salary matches when maximum pay reaches the requested minimum, or minimum pay
 reaches it if maximum is absent; undisclosed salaries are excluded from matches.
 There are five vacancy rows per page, plus next/back/menu (maximum eight rows).

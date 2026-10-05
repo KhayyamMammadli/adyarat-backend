@@ -323,7 +323,11 @@ export class JobAgentService {
     let query = this.activeJobs();
     if (mode === 'matches') {
       const pref = await this.preference(profileId);
-      if (!pref?.desired_title || !pref?.location_name || pref.salary_min == null) {
+      if (
+        (!pref?.desired_title && !pref?.category_id) ||
+        !pref?.location_name ||
+        pref.salary_min == null
+      ) {
         await this.whatsapp.sendJobButtons(
           waId,
           'Uyğun vakansiyalar üçün əvvəl iş profilinizi tamamlayın.',
@@ -331,10 +335,23 @@ export class JobAgentService {
         );
         return;
       }
-      query = query.ilike('title', `%${this.literalLike(pref.desired_title)}%`);
-      if (!pref.work_modes?.includes('remote'))
-        query = query.ilike('location_name', `%${this.literalLike(pref.location_name)}%`);
+      if (pref.category_id && pref.desired_title) {
+        query = query.or(
+          `category_id.eq.${Number(pref.category_id)},title.ilike.${this.filterLike(pref.desired_title)}`,
+        );
+      } else if (pref.category_id) query = query.eq('category_id', pref.category_id);
+      else query = query.ilike('title', `%${this.literalLike(pref.desired_title)}%`);
+      // The exception belongs to the vacancy, not to all modes selected by the seeker.
+      const city = pref.location_name.trim();
+      const cities = /^(bakı|baki|baku)$/i.test(city) ? ['Bakı', 'Baki', 'Baku'] : [city];
+      query = query.or(
+        [
+          'work_mode.eq.remote',
+          ...cities.map((name) => `location_name.ilike.${this.filterLike(name)}`),
+        ].join(','),
+      );
       if (pref.work_modes?.length) query = query.in('work_mode', pref.work_modes);
+      query = query.eq('salary_currency', pref.salary_currency ?? 'AZN');
       query = query.or(
         `salary_max.gte.${Number(pref.salary_min)},and(salary_max.is.null,salary_min.gte.${Number(pref.salary_min)})`,
       );
@@ -367,6 +384,19 @@ export class JobAgentService {
         description: 'Növbəti səhifə',
       });
     rows.push({ ...MENU, description: 'Əsas menyuya qayıt' });
+    // WhatsApp list rows are hidden behind its picker. Show the current page in chat too.
+    if (jobs.length) {
+      await this.whatsapp.sendText(
+        waId,
+        jobs
+          .slice(0, PAGE_SIZE)
+          .map(
+            (job) =>
+              `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)} • ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}`,
+          )
+          .join('\n\n'),
+      );
+    }
     await this.whatsapp.sendJobList(
       waId,
       jobs.length
@@ -399,6 +429,10 @@ export class JobAgentService {
   }
   private formatJob(job: Vacancy): string {
     return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}`;
+  }
+  private filterLike(value: string): string {
+    // Quoted PostgREST values keep commas/parentheses in user input out of its grammar.
+    return JSON.stringify(`%${this.literalLike(value)}%`);
   }
   private literalLike(value: string): string {
     return value.replace(/[\\%_]/g, '\\$&');

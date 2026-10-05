@@ -39,7 +39,7 @@ export function fixture() {
           return q;
         },
         eq(k, v) {
-          spec.filters.push((row) => row[k] === v);
+          spec.filters.push((row) => (k === 'salary_currency' ? (row[k] ?? 'AZN') : row[k]) === v);
           return q;
         },
         contains(k, v) {
@@ -68,7 +68,28 @@ export function fixture() {
         },
         or(value) {
           spec.ors.push(value);
-          if (value.startsWith('expires_at'))
+          if (value.startsWith('category_id')) {
+            const category = Number(/category_id.eq.(\d+)/.exec(value)[1]);
+            const title = JSON.parse(value.slice(value.indexOf('title.ilike.') + 12)).slice(1, -1);
+            spec.filters.push(
+              (row) =>
+                row.category_id === category ||
+                String(row.title).toLowerCase().includes(title.toLowerCase()),
+            );
+          } else if (value.startsWith('work_mode.eq.remote')) {
+            const cities = [...value.matchAll(/location_name.ilike.("(?:[^"\\]|\\.)*")/g)].map(
+              (m) => JSON.parse(m[1]).slice(1, -1).toLowerCase(),
+            );
+            spec.filters.push(
+              (row) =>
+                row.work_mode === 'remote' ||
+                cities.some((city) =>
+                  String(row.location_name ?? '')
+                    .toLowerCase()
+                    .includes(city),
+                ),
+            );
+          } else if (value.startsWith('expires_at'))
             spec.filters.push(
               (row) => !row.expires_at || row.expires_at > new Date().toISOString(),
             );
