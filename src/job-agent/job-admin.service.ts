@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
 
 @Injectable()
 export class JobAdminService {
+  private readonly logger = new Logger(JobAdminService.name);
   constructor(
     private readonly supabase: SupabaseService,
     private readonly whatsapp: WhatsAppClientService,
@@ -13,7 +14,7 @@ export class JobAdminService {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select(
-        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,metadata,created_at',
+        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at',
       )
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
@@ -44,8 +45,11 @@ export class JobAdminService {
   }
 
   async reject(jobId: number, reason?: string): Promise<any> {
+    const cleanReason = reason?.trim();
+    if (!cleanReason || cleanReason.length > 500)
+      throw new Error('Reject reason must contain 1–500 characters');
     const job = await this.getPending(jobId);
-    const metadata = { ...(job.metadata ?? {}), moderation_reason: reason?.trim() || undefined };
+    const metadata = { ...(job.metadata ?? {}), moderation_reason: cleanReason };
     const { data, error } = await this.supabase.client
       .from('jobs')
       .update({ status: 'rejected', metadata, updated_at: new Date().toISOString() })
@@ -62,7 +66,37 @@ export class JobAdminService {
     return data;
   }
 
-  private async getPending(jobId: number): Promise<any> {
+  async createActive(
+    draft: Record<string, unknown>,
+    sourceId: string,
+    userId: number,
+  ): Promise<any> {
+    const row = {
+      ...draft,
+      source: 'telegram_admin',
+      source_id: sourceId,
+      status: 'active',
+      published_at: new Date().toISOString(),
+      metadata: { telegram_admin_user_id: userId },
+    };
+    const { data, error } = await this.supabase.client
+      .from('jobs')
+      .upsert(row, { onConflict: 'source,source_id', ignoreDuplicates: true })
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+    const existing = await this.supabase.client
+      .from('jobs')
+      .select('*')
+      .eq('source', 'telegram_admin')
+      .eq('source_id', sourceId)
+      .single();
+    if (existing.error) throw existing.error;
+    return existing.data;
+  }
+
+  async getPending(jobId: number): Promise<any> {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select('*')
@@ -77,14 +111,19 @@ export class JobAdminService {
   private async notifyEmployer(job: any, text: string): Promise<void> {
     const profileId = job.metadata?.employer_profile_id;
     if (!profileId) return;
-    const { data: profile } = await this.supabase.client
-      .from('job_agent_profiles')
-      .select('wa_id')
-      .eq('id', profileId)
-      .maybeSingle();
-    if (profile?.wa_id) {
-      await this.whatsapp.sendText(profile.wa_id, text);
-      await this.whatsapp.sendJobMainMenu(profile.wa_id);
+    try {
+      const { data: profile, error } = await this.supabase.client
+        .from('job_agent_profiles')
+        .select('wa_id')
+        .eq('id', profileId)
+        .maybeSingle();
+      if (error) throw error;
+      if (profile?.wa_id) {
+        await this.whatsapp.sendText(profile.wa_id, text);
+        await this.whatsapp.sendJobMainMenu(profile.wa_id);
+      }
+    } catch {
+      this.logger.warn(`Vacancy #${job.id} moderated, but employer notification failed`);
     }
   }
 }

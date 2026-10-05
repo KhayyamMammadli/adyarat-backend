@@ -1,3 +1,4 @@
+import { moderationButtons, formatTelegramJob } from '../telegram/job-message';
 import { Injectable } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
@@ -25,6 +26,7 @@ type Vacancy = {
   salary_currency?: string;
   description?: string;
   contact_phone?: string;
+  contact_email?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -66,16 +68,14 @@ export class JobAgentService {
     if (action === 'job:employer') {
       const employer = await this.employer(profile.id);
       await this.write(
-        this.supabase.client
-          .from('employer_profiles')
-          .upsert(
-            {
-              profile_id: profile.id,
-              metadata: { ...(employer?.metadata ?? {}), draft_job_id: null },
-              updated_at: this.now(),
-            },
-            { onConflict: 'profile_id' },
-          ),
+        this.supabase.client.from('employer_profiles').upsert(
+          {
+            profile_id: profile.id,
+            metadata: { ...(employer?.metadata ?? {}), draft_job_id: null },
+            updated_at: this.now(),
+          },
+          { onConflict: 'profile_id' },
+        ),
       );
       await this.setRole(profile.id, 'employer', 'employer_company');
       await this.prompt(waId, '🏢 Şirkətin adını yazın.');
@@ -298,7 +298,8 @@ export class JobAgentService {
     await this.updateDraft(profileId, { status: 'pending' });
     await this.setState(profileId, 'ready');
     await this.telegram.sendMessage(
-      `📋 Yeni vakansiya moderasiyaya göndərildi\n${this.formatJob(job)}\n✅ /approve ${job.id}\n❌ /reject ${job.id} səbəb`,
+      `📋 Yeni vakansiya moderasiyaya göndərildi\n${formatTelegramJob(job)}`,
+      moderationButtons(job.id),
     );
     await this.whatsapp.sendText(
       waId,
@@ -344,17 +345,15 @@ export class JobAgentService {
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
     if (error) throw error;
     const jobs = (data ?? []) as Vacancy[];
-    const rows = jobs
-      .slice(0, PAGE_SIZE)
-      .map((job) => ({
-        id: `job:detail:${mode}:${page}:${job.id}`,
-        title: job.title.slice(0, 24),
-        description:
-          `${job.company_name ?? 'Şirkət'} • ${job.location_name ?? 'Lokasiya'} • ${this.salary(job)}`.slice(
-            0,
-            72,
-          ),
-      }));
+    const rows = jobs.slice(0, PAGE_SIZE).map((job) => ({
+      id: `job:detail:${mode}:${page}:${job.id}`,
+      title: job.title.slice(0, 24),
+      description:
+        `${job.company_name ?? 'Şirkət'} • ${job.location_name ?? 'Lokasiya'} • ${this.salary(job)}`.slice(
+          0,
+          72,
+        ),
+    }));
     if (page > 0)
       rows.push({
         id: `job:page:${mode}:${page - 1}`,
@@ -399,7 +398,7 @@ export class JobAgentService {
       : 'Maaş göstərilməyib';
   }
   private formatJob(job: Vacancy): string {
-    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}`;
+    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}`;
   }
   private literalLike(value: string): string {
     return value.replace(/[\\%_]/g, '\\$&');

@@ -54,8 +54,9 @@ if moderators add or remove vacancies while someone browses. Detail views rechec
 active/expiry status and include description/contact plus a return button.
 
 Existing authorized Telegram `/pending`, `/approve ID`, `/reject ID reason` commands
-remain. Submission notifies the configured admin. Only `/approve` transitions a
-pending vacancy to active and sets published_at. `/pending` sends separate bounded
+remain. Submission notifies the configured admin. The inline ✅ Təsdiq et button or `/approve` transitions a
+pending vacancy to active and sets published_at. See [Telegram admin](TELEGRAM_ADMIN.md)
+for rejection reasons and direct admin creation. `/pending` sends separate bounded
 messages for each vacancy. Telegram notification delivery uses the existing
 best-effort transport; admins can still retrieve pending jobs with `/pending` if
 a notification fails or Telegram settings are missing.
