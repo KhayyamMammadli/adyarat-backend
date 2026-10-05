@@ -41,15 +41,17 @@ export class TelegramController {
         await this.telegramAdmin.sendMessage('✅ Gözləyən vakansiya yoxdur.');
         return true;
       }
-      const lines = ['📋 GÖZLƏYƏN VAKANSİYALAR', ''];
+      await this.telegramAdmin.sendMessage('📋 GÖZLƏYƏN VAKANSİYALAR');
       for (const job of jobs) {
-        const salary = job.salary_min || job.salary_max
-          ? `${job.salary_min ?? ''}${job.salary_min && job.salary_max ? '–' : ''}${job.salary_max ?? ''} ${job.salary_currency ?? 'AZN'}`
-          : 'göstərilməyib';
+        const lines: string[] = [];
+        const salary =
+          job.salary_min || job.salary_max
+            ? `${job.salary_min ?? ''}${job.salary_min && job.salary_max ? '–' : ''}${job.salary_max ?? ''} ${job.salary_currency ?? 'AZN'}`
+            : 'göstərilməyib';
         lines.push(
-          `#${job.id} — ${job.title}`,
-          `🏢 ${job.company_name ?? 'Şirkət göstərilməyib'}`,
-          `📍 ${job.location_name ?? 'Lokasiya göstərilməyib'}`,
+          `#${job.id} — ${String(job.title).slice(0, 120)}`,
+          `🏢 ${String(job.company_name ?? 'Şirkət göstərilməyib').slice(0, 160)}`,
+          `📍 ${String(job.location_name ?? 'Lokasiya göstərilməyib').slice(0, 250)}`,
           `💼 ${job.work_mode ?? '-'}`,
           `💰 ${salary}`,
           job.description ? `📝 ${String(job.description).slice(0, 500)}` : '',
@@ -58,8 +60,8 @@ export class TelegramController {
           `❌ /reject ${job.id} səbəb`,
           '',
         );
+        await this.telegramAdmin.sendMessage(lines.filter(Boolean).join('\n'));
       }
-      await this.telegramAdmin.sendMessage(lines.filter(Boolean).join('\n'));
       return true;
     }
 
@@ -71,9 +73,13 @@ export class TelegramController {
       }
       try {
         const job = await this.jobAdmin.approve(id);
-        await this.telegramAdmin.sendMessage(`✅ #${id} təsdiqləndi və aktiv edildi.\n📢 ${job.title}`);
+        await this.telegramAdmin.sendMessage(
+          `✅ #${id} təsdiqləndi və aktiv edildi.\n📢 ${job.title}`,
+        );
       } catch (error) {
-        await this.telegramAdmin.sendMessage(`❌ #${id} təsdiqlənmədi: ${error instanceof Error ? error.message : String(error)}`);
+        await this.telegramAdmin.sendMessage(
+          `❌ #${id} təsdiqlənmədi: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       return true;
     }
@@ -87,9 +93,13 @@ export class TelegramController {
       const reason = reasonParts.join(' ').trim();
       try {
         const job = await this.jobAdmin.reject(id, reason || undefined);
-        await this.telegramAdmin.sendMessage(`❌ #${id} rədd edildi.\n📢 ${job.title}${reason ? `\nSəbəb: ${reason}` : ''}`);
+        await this.telegramAdmin.sendMessage(
+          `❌ #${id} rədd edildi.\n📢 ${job.title}${reason ? `\nSəbəb: ${reason}` : ''}`,
+        );
       } catch (error) {
-        await this.telegramAdmin.sendMessage(`❌ #${id} rədd edilə bilmədi: ${error instanceof Error ? error.message : String(error)}`);
+        await this.telegramAdmin.sendMessage(
+          `❌ #${id} rədd edilə bilmədi: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       return true;
     }

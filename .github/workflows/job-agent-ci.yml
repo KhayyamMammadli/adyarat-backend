@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/job-agent-whatsapp
+      - feat/job-agent-interactive-menu
   pull_request:
 
 jobs:
@@ -27,3 +28,4 @@ jobs:
 
       - name: Build and test
         run: npm test
+

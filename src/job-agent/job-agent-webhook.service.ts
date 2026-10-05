@@ -24,11 +24,7 @@ export class JobAgentWebhookService {
 
         if (message.type === 'text' && 'text' in message) {
           const textMessage = message as WhatsAppTextMessage;
-          await this.jobAgent.handleText(
-            textMessage.from,
-            textMessage.text.body,
-            profileName,
-          );
+          await this.jobAgent.handleText(textMessage.from, textMessage.text.body, profileName);
           continue;
         }
 
@@ -41,19 +37,16 @@ export class JobAgentWebhookService {
             interactiveMessage.interactive.list_reply?.title;
 
           if (value) {
-            await this.jobAgent.handleText(
-              interactiveMessage.from,
-              value,
-              profileName,
-            );
+            await this.jobAgent.handleInteractive(interactiveMessage.from, value, profileName);
             continue;
           }
         }
 
         await this.whatsapp.sendText(
           message.from,
-          'Hazırda mətn mesajları ilə davam edirik. “Menyu” yazaraq başlaya bilərsiniz.',
+          'Bu addımda mətnlə cavab verin və ya aşağıdakı menyudan seçim edin.',
         );
+        await this.whatsapp.sendJobMainMenu(message.from, profileName);
       } catch (error) {
         this.logger.error(
           `Job Agent message ${message.id} failed: ${error instanceof Error ? error.message : String(error)}`,

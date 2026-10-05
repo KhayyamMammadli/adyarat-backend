@@ -8,7 +8,6 @@ import { JobAgentModule } from './job-agent/job-agent.module';
 import { MediaModule } from './media/media.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { TelegramModule } from './telegram/telegram.module';
-import { VideoModule } from './video/video.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
@@ -23,12 +22,9 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     MediaModule,
     WhatsAppModule,
     JobAgentModule,
-    VideoModule,
     TelegramModule,
   ],
 
-  controllers: [
-    AppController,
-  ],
+  controllers: [AppController],
 })
 export class AppModule {}
