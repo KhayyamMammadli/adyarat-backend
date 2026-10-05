@@ -6,6 +6,7 @@ on:
       - feat/job-agent-whatsapp
       - feat/job-agent-interactive-menu
       - feat/telegram-admin-interactive
+      - feat/vacancy-aggregator
   pull_request:
 
 jobs:

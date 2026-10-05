@@ -14,7 +14,7 @@ export class JobAdminService {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select(
-        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at',
+        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at,source,source_url',
       )
       .eq('status', 'pending')
       .order('created_at', { ascending: true })

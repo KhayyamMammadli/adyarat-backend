@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Synthetic authorized partner fixture</title><item>
+<guid>az-100</guid><link>https://partner.example/jobs/100/?utm_source=rss</link>
+<title>Frontend Developer</title><company>Mock Tech MMC</company><category>Texnologiya</category>
+<location>Baki</location><work_mode>Hibrid</work_mode><salary>2000–3500 AZN</salary>
+<description><![CDATA[<p>React, TypeScript və Git bilikləri.</p>]]></description>
+<requirements>Minimum 2 il təcrübə</requirements><pubDate>Mon, 05 Oct 2026 08:00:00 GMT</pubDate>
+<expires_at>2099-11-05</expires_at>
+</item></channel></rss>

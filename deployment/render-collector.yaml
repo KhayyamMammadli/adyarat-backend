@@ -1,0 +1,21 @@
+# Optional separate Blueprint; do not sync this as the existing production web service.
+# No deployment is performed by adding this file. Both MVP source adapters are disabled.
+services:
+  - type: cron
+    name: adyarat-vacancy-collector
+    runtime: node
+    branch: feat/vacancy-aggregator
+    schedule: '0 */6 * * *'
+    buildCommand: npm ci && npm run build
+    startCommand: npm run collector
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.3
+      - key: NODE_ENV
+        value: production
+      - key: COLLECTOR_ENABLED
+        value: 'false'
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false

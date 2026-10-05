@@ -27,5 +27,8 @@ export function formatTelegramJob(job: Record<string, any>): string {
     `📝 ${String(job.description ?? '-').slice(0, 1500)}`,
     `☎️ ${String(job.contact_phone ?? '-').slice(0, 25)}`,
     `📧 ${String(job.contact_email ?? '-').slice(0, 254)}`,
+    ...(job.source_url
+      ? [`🔗 ${String(job.source ?? '').slice(0, 40)}: ${String(job.source_url).slice(0, 1000)}`]
+      : []),
   ].join('\n');
 }

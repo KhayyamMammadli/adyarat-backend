@@ -9,6 +9,8 @@ export function fixture() {
     job_seeker_preferences: [],
     employer_profiles: [],
     jobs: [],
+    job_categories: [],
+    vacancy_notification_intents: [],
   };
   const calls = [];
   const sent = [];
@@ -44,15 +46,16 @@ export function fixture() {
         },
         contains(k, v) {
           spec.filters.push((row) =>
-            Object.entries(v).every(
-              ([key, value]) => JSON.stringify(row[k]?.[key]) === JSON.stringify(value),
+            Object.entries(v).every(([key, value]) =>
+              Array.isArray(value)
+                ? value.every((v) => row[k]?.[key]?.includes(v))
+                : JSON.stringify(row[k]?.[key]) === JSON.stringify(value),
             ),
           );
           return q;
         },
         ilike(k, v) {
-          const needle = v
-            .slice(1, -1)
+          const needle = (v.startsWith('%') && v.endsWith('%') ? v.slice(1, -1) : v)
             .replace(/\\([%_\\])/g, '$1')
             .toLowerCase();
           spec.filters.push((row) =>
@@ -103,7 +106,7 @@ export function fixture() {
           }
           return q;
         },
-        order(k, opts) {
+        order(k, opts = { ascending: true }) {
           spec.orders.push([k, opts.ascending]);
           return q;
         },
@@ -141,6 +144,15 @@ export function fixture() {
                   spec.op === 'upsert'
                     ? rows.find((r) => keys.every((key) => r[key] === spec.value[key]))
                     : undefined;
+                if (
+                  !row &&
+                  table === 'jobs' &&
+                  spec.value.source_url &&
+                  rows.some(
+                    (r) => r.source === spec.value.source && r.source_url === spec.value.source_url,
+                  )
+                )
+                  return { data: null, error: { code: '23505' } };
                 if (row && spec.options?.ignoreDuplicates) return { data: null, error: null };
                 if (row) Object.assign(row, spec.value);
                 else {
