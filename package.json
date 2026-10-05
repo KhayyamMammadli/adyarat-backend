@@ -33,6 +33,7 @@
     "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.14",
     "@nestjs/cli": "12.0.5",
     "@nestjs/schematics": "12.0.5",
     "@types/express": "5.0.6",

@@ -1,3 +1,7 @@
+import {
+  BusinessRegistrationService,
+  normalizePhone,
+} from '../../dist/job-agent/business-registration.service.js';
 import { JobAgentService } from '../../dist/job-agent/job-agent.service.js';
 import { distanceKm } from '../../dist/job-agent/vacancy-validation.js';
 import { JobAdminService } from '../../dist/job-agent/job-admin.service.js';
@@ -18,7 +22,38 @@ export function fixture() {
   const notices = [];
   let failure;
   const client = {
+    storage: {
+      from: () => ({
+        upload: async () => ({ error: null }),
+        createSignedUrl: async (path) => ({
+          data: { signedUrl: `https://fixture.invalid/${path}` },
+          error: null,
+        }),
+      }),
+    },
     rpc(name, args) {
+      if (name === 'claim_job_profile_contact') {
+        const p = tables.job_agent_profiles.find((p) => p.id === args.p_profile_id);
+        const email = args.p_email?.toLowerCase(),
+          phone = normalizePhone(args.p_phone ?? '');
+        if (
+          tables.job_agent_profiles.some(
+            (other) =>
+              other.id !== p.id &&
+              ((email && other.contact_email === email) ||
+                (phone &&
+                  (normalizePhone(other.contact_phone ?? '') === phone ||
+                    normalizePhone(other.phone ?? '') === phone))),
+          ) ||
+          tables.employer_profiles.some(
+            (e) => e.profile_id !== p.id && email && e.email?.toLowerCase() === email,
+          )
+        )
+          return Promise.resolve({ error: { code: '23505' } });
+        if (email) p.contact_email = email;
+        if (phone) p.contact_phone = phone;
+        return Promise.resolve({ error: null });
+      }
       if (name !== 'jobs_within_radius') throw new Error('Unexpected RPC');
       return client.from('jobs').radius(args);
     },
@@ -222,6 +257,11 @@ export function fixture() {
       },
     ]),
   );
+  whatsapp.downloadMedia = async () => ({
+    bytes: Buffer.from([255, 216, 255, 224]),
+    mimeType: 'image/jpeg',
+    fileSize: 4,
+  });
   const noticeButtons = [];
   const telegram = {
     sendMessage: async (text, markup) => {
@@ -229,9 +269,25 @@ export function fixture() {
       noticeButtons.push(markup);
     },
   };
-  const service = new JobAgentService({ client }, whatsapp, telegram);
+  telegram.sendPhoto = async (url, text, markup) => {
+    notices.push(text);
+    noticeButtons.push(markup);
+  };
+  telegram.sendTo = async () => ({ message_id: 1 });
+  const registry = {
+    lookup: async (voen) => ({
+      status: 'found',
+      voen,
+      legalName: 'Fixture business',
+      reference: 'fixture-lookup-only',
+    }),
+  };
+  const businesses = new BusinessRegistrationService({ client }, whatsapp, telegram, registry);
+  const service = new JobAgentService({ client }, whatsapp, telegram, businesses);
   return {
     service,
+    businesses,
+    registry,
     tables,
     sent,
     calls,
@@ -249,10 +305,7 @@ export function fixture() {
   };
 }
 export async function employerDraft(f) {
-  await f.action('job:employer');
-  if (f.state() === 'employer_company') await f.text('Yelo');
-  if (f.state() === 'employer_voen') await f.text('1500315641');
-  if (f.state() === 'employer_email') await f.text('hr@example.com');
+  await approvedEmployer(f, 'Yelo');
   await f.action('job:employer:new');
   for (const text of ['Frontend developer', 'Bakı, Nizami 1', '1']) await f.text(text);
   await f.service.handleLocation('wa1', { latitude: 40.4093, longitude: 49.8671 });
@@ -264,6 +317,8 @@ export async function employerDraft(f) {
 export async function seeker(f) {
   await f.action('job:seeker');
   for (const text of ['Frontend', 'Bakı', '1', '1000']) await f.text(text);
+  if (f.state() === 'seeker_email') await f.text('hr@example.com');
+  if (f.state() === 'seeker_phone') await f.text('+994501234567');
 }
 export const last = (f, name) => f.sent.filter((call) => call.name === name).at(-1);
 export function seedJobs(f, n = 12) {
@@ -282,4 +337,25 @@ export function seedJobs(f, n = 12) {
       created_at: '2026-01-01',
     })),
   );
+}
+
+export async function approvedEmployer(f, name = 'Company') {
+  await f.action('job:employer');
+  if (f.state() === 'business_type') await f.action('job:business:type:company');
+  if (f.state() === 'employer_company') await f.text(name);
+  if (f.state() === 'employer_voen') await f.text('1500315641');
+  if (f.state() === 'business_photo') await f.service.handleImage('wa1', { id: 'photo' });
+  for (const [state, text] of [
+    ['business_contact_name', 'Owner'],
+    ['business_description', 'Business'],
+    ['business_address', 'Bakı'],
+    ['employer_email', 'hr@example.com'],
+    ['business_phone', '+994501234567'],
+  ])
+    if (f.state() === state) await f.text(text);
+  if (f.state() === 'business_confirm') await f.action('job:business:submit');
+  const e = f.tables.employer_profiles[0];
+  if (e.registration_status === 'pending')
+    await f.businesses.moderate(e.profile_id, e.registration_token, true, 7);
+  await f.action('job:employer');
 }

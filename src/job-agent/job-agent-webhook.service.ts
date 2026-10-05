@@ -28,6 +28,15 @@ export class JobAgentWebhookService {
           continue;
         }
 
+        if (message.type === 'image' && 'image' in message) {
+          await this.jobAgent.handleImage(
+            message.from,
+            message.image as { id: string },
+            profileName,
+          );
+          continue;
+        }
+
         if (message.type === 'location' && 'location' in message) {
           await this.jobAgent.handleLocation(message.from, message.location, profileName);
           continue;

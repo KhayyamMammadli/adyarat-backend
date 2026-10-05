@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fixture, employerDraft, last } from './helpers/job-agent-fixture.mjs';
+import { fixture, employerDraft, last, approvedEmployer } from './helpers/job-agent-fixture.mjs';
 
 async function profile(f) {
-  await f.action('job:employer');
-  for (const t of ['Company', '1500315641', 'hr@example.com']) await f.text(t);
+  await approvedEmployer(f);
 }
 test('employer onboarding persists company/VÖEN/email and creates no vacancy until explicit Add', async () => {
   const f = fixture();
@@ -46,18 +45,17 @@ test('existing company missing credentials resumes profile creation rather than 
   await f.text('salam');
   f.tables.employer_profiles.push({ profile_id: 'p1', company_name: 'Existing', metadata: {} });
   await f.action('job:employer');
-  assert.equal(f.state(), 'employer_voen');
-  await f.text('1500315641');
-  await f.text('hr@example.com');
+  assert.equal(f.state(), 'business_type');
+  await approvedEmployer(f, 'Existing');
   assert.equal(f.state(), 'employer_ready');
   assert.equal(f.tables.jobs.length, 0);
 });
-test('company can be changed explicitly without overwriting credentials or creating a vacancy', async () => {
+test('business edit requires new approval while keeping canonical contact ownership', async () => {
   const f = fixture();
   await profile(f);
   await f.action('job:employer:edit');
-  assert.equal(f.state(), 'employer_company');
-  await f.text('New company');
+  assert.equal(f.state(), 'business_type');
+  await approvedEmployer(f, 'New company');
   assert.equal(f.state(), 'employer_ready');
   assert.equal(f.tables.jobs.length, 0);
   assert.equal(f.tables.employer_profiles[0].company_name, 'New company');

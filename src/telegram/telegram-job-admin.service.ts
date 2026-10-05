@@ -1,3 +1,4 @@
+import { BusinessRegistrationService } from '../job-agent/business-registration.service';
 import { validCoordinates, validEmail } from '../job-agent/vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
@@ -14,6 +15,7 @@ import { formatTelegramJob, moderationButtons } from './job-message';
 const PANEL: InlineKeyboard = {
   inline_keyboard: [
     [{ text: '➕ Vakansiya əlavə et', callback_data: 'tg:new' }],
+    [{ text: '🏢 Biznes profilləri', callback_data: 'tg:businesses' }],
     [{ text: '📋 Gözləyən vakansiyalar', callback_data: 'tg:pending' }],
   ],
 };
@@ -49,6 +51,7 @@ export class TelegramJobAdminService {
     private readonly jobs: JobAdminService,
     private readonly states: TelegramAdminStateService,
     private readonly telegram: TelegramTransport,
+    private readonly businesses: BusinessRegistrationService,
   ) {}
 
   async handle(actor: AdminActor, update: TelegramUpdate): Promise<boolean> {
@@ -95,6 +98,44 @@ export class TelegramJobAdminService {
     if (action === 'tg:admin' || ['/admin', '/start', '/menu', '/cancel'].includes(command ?? '')) {
       await this.states.save(state, idle());
       await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
+      return true;
+    }
+    if (action === 'tg:businesses') {
+      await this.businesses.pending(actor.chatId);
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
+      return true;
+    }
+    const business = /^biz:([ar]):([0-9a-f-]{36}):([0-9a-f]{12})$/.exec(action ?? '');
+    if (business) {
+      try {
+        const changed = await this.businesses.moderate(
+          business[2],
+          business[3],
+          business[1] === 'a',
+          actor.userId,
+        );
+        if (changed)
+          await this.removeModerationButtons(
+            actor.chatId,
+            update.callback_query?.message?.message_id,
+          );
+        await this.telegram.sendTo(
+          actor.chatId,
+          changed
+            ? business[1] === 'a'
+              ? '✅ Biznes profili təsdiqləndi.'
+              : '❌ Biznes profili rədd edildi.'
+            : 'Bu profil artıq yoxlanılıb və ya düymə köhnədir.',
+          PANEL,
+        );
+      } catch {
+        await this.telegram.sendTo(
+          actor.chatId,
+          'Profil əməliyyatı alınmadı. Yenidən cəhd edin.',
+          PANEL,
+        );
+      }
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
     if (action === 'tg:pending' || command === '/pending' || command === '/vakansiyalar') {
