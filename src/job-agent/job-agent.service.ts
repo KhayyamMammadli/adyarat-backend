@@ -114,7 +114,28 @@ export class JobAgentService {
           { onConflict: 'profile_id' },
         ),
       );
-      await this.setRole(profile.id, 'employer', 'employer_company');
+      await this.setRole(profile.id, 'employer', 'employer_ready');
+      await this.requireEmployer(waId, profile.id);
+      return;
+    }
+    if (
+      action === 'job:employer:new' &&
+      profile.role === 'employer' &&
+      ['employer_ready', 'employer_confirm'].includes(profile.state)
+    ) {
+      const employer = await this.employer(profile.id);
+      await this.saveEmployer(profile.id, {
+        metadata: { ...(employer?.metadata ?? {}), draft_job_id: null, location_return: null },
+      });
+      await this.requireEmployer(waId, profile.id, 'employer_job_title');
+      return;
+    }
+    if (
+      action === 'job:employer:edit' &&
+      profile.role === 'employer' &&
+      profile.state === 'employer_ready'
+    ) {
+      await this.setState(profile.id, 'employer_company');
       await this.prompt(waId, '🏢 Şirkətin adını yazın.');
       return;
     }
@@ -412,13 +433,30 @@ export class JobAgentService {
       await this.saveEmployer(id, {
         metadata: { ...(employer?.metadata ?? {}), onboarding_return: resume },
       });
-    const target = resume ?? employer?.metadata?.onboarding_return ?? 'employer_job_title';
-    const state = !validVoen(employer?.voen)
-      ? 'employer_voen'
-      : !validEmail(employer?.email)
-        ? 'employer_email'
-        : target;
+    const target = resume ?? employer?.metadata?.onboarding_return ?? 'employer_ready';
+    const state = !employer?.company_name?.trim()
+      ? 'employer_company'
+      : !validVoen(employer?.voen)
+        ? 'employer_voen'
+        : !validEmail(employer?.email)
+          ? 'employer_email'
+          : target;
     await this.setState(id, state);
+    if (state === 'employer_ready') {
+      await this.saveEmployer(id, {
+        metadata: { ...(employer?.metadata ?? {}), onboarding_return: null },
+      });
+      await this.whatsapp.sendJobButtons(
+        waId,
+        `✅ İşəgötürən profiliniz saxlanılıb.\n🏢 ${employer.company_name}\nVÖEN: ${employer.voen}\n📧 ${employer.email}\nVakansiya yaratmaq üçün seçim edin.`,
+        [
+          { id: 'job:employer:new', title: 'Vakansiya əlavə et' },
+          { id: 'job:employer:edit', title: '✏️ Şirkəti dəyiş' },
+          MENU,
+        ],
+      );
+      return;
+    }
     if (state === 'employer_confirm') {
       await this.saveEmployer(id, {
         metadata: { ...(employer?.metadata ?? {}), onboarding_return: null },
@@ -428,11 +466,13 @@ export class JobAgentService {
     }
     await this.prompt(
       waId,
-      state === 'employer_voen'
-        ? '🏢 10 rəqəmli VÖEN-i yazın.'
-        : state === 'employer_email'
-          ? '📧 İşəgötürən email ünvanını yazın (namizədlərə göstəriləcək).'
-          : '📢 Vakansiyanın adını yazın.',
+      state === 'employer_company'
+        ? '🏢 Şirkətin adını yazın.'
+        : state === 'employer_voen'
+          ? '🏢 10 rəqəmli VÖEN-i yazın.'
+          : state === 'employer_email'
+            ? '📧 İşəgötürən email ünvanını yazın (namizədlərə göstəriləcək).'
+            : '📢 Vakansiyanın adını yazın.',
     );
   }
   private async saveFilters(id: string, filters: Record<string, unknown>): Promise<void> {
@@ -627,7 +667,7 @@ export class JobAgentService {
       'Elanı yoxlayın. Təsdiq etdikdən sonra admin moderasiyasına göndəriləcək.',
       [
         { id: `job:confirm:${job.id}`, title: '✅ Təsdiq et' },
-        { id: 'job:employer', title: 'Yenidən hazırla' },
+        { id: 'job:employer:new', title: 'Yenidən hazırla' },
         MENU,
       ],
     );

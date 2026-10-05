@@ -250,15 +250,11 @@ export function fixture() {
 }
 export async function employerDraft(f) {
   await f.action('job:employer');
-  for (const text of [
-    'Yelo',
-    '1500315641',
-    'hr@example.com',
-    'Frontend developer',
-    'Bakı, Nizami 1',
-    '1',
-  ])
-    await f.text(text);
+  if (f.state() === 'employer_company') await f.text('Yelo');
+  if (f.state() === 'employer_voen') await f.text('1500315641');
+  if (f.state() === 'employer_email') await f.text('hr@example.com');
+  await f.action('job:employer:new');
+  for (const text of ['Frontend developer', 'Bakı, Nizami 1', '1']) await f.text(text);
   await f.service.handleLocation('wa1', { latitude: 40.4093, longitude: 49.8671 });
   for (const text of ['1000', '2000', 'React təcrübəsi']) await f.text(text);
   await f.action('job:contact:add');

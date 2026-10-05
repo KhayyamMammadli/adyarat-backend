@@ -8,6 +8,7 @@ on:
       - feat/telegram-admin-interactive
       - feat/vacancy-aggregator
       - feat/employer-location-vacancy-filters
+      - feat/employer-profile-onboarding
   pull_request:
 
 jobs:

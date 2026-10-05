@@ -42,13 +42,14 @@ test('role actions interrupt active state and reset incomplete data/draft pointe
   await f.text('Company');
   await f.text('1500315641');
   await f.text('hr@example.com');
+  await f.action('job:employer:new');
   await f.text('Title');
   const draft = f.tables.jobs[0];
   await f.action('job:seeker');
   assert.equal(f.state(), 'seeker_category');
   assert.equal(f.tables.job_seeker_preferences[0].salary_min, null);
   await f.action('job:employer');
-  assert.equal(f.state(), 'employer_company');
+  assert.equal(f.state(), 'employer_ready');
   assert.equal(f.tables.employer_profiles[0].metadata.draft_job_id, null);
   assert.equal(draft.status, 'draft');
   assert.equal(f.tables.jobs.length, 1);
@@ -73,6 +74,7 @@ test('numeric answers are current-step data, never global role shortcuts', async
   assert.equal(f.tables.employer_profiles[0].company_name, '1');
   await f.text('1500315641');
   await f.text('hr@example.com');
+  await f.action('job:employer:new');
   await f.text('2');
   assert.equal(f.tables.jobs[0].title, '2');
   await f.text('3');
@@ -103,8 +105,9 @@ test('employer flow keeps company, preview and contact in draft until explicit c
 test('maximum salary and contact validation preserve current state', async () => {
   const f = fixture();
   await f.action('job:employer');
-  for (const text of ['Company', '1500315641', 'hr@example.com', 'Title', 'Bakı', '3'])
-    await f.text(text);
+  for (const text of ['Company', '1500315641', 'hr@example.com']) await f.text(text);
+  await f.action('job:employer:new');
+  for (const text of ['Title', 'Bakı', '3']) await f.text(text);
   await f.service.handleLocation('wa1', { latitude: 40.4, longitude: 49.8 });
   await f.text('1000');
   await f.text('900');
@@ -128,6 +131,7 @@ test('draft updates enforce ownership and draft status', async () => {
   await f.text('Company');
   await f.text('1500315641');
   await f.text('hr@example.com');
+  await f.action('job:employer:new');
   await f.text('Title');
   f.tables.jobs[0].metadata.employer_profile_id = 'other';
   await assert.rejects(f.text('Bakı'), /Expected one row/);
