@@ -18,16 +18,11 @@ export class JobAgentService {
     const value = raw.toLocaleLowerCase('az');
     const profile = await this.upsertProfile(waId, displayName);
 
+    // Explicit menu commands are always allowed and intentionally reset the current flow.
     if (['salam', 'hello', 'hi', 'menu', 'menyu', 'start'].includes(value)) { await this.welcome(waId, displayName); return true; }
-    if (value === '1' || value.includes('iş axtarıram') || value.includes('is axtariram')) {
-      await this.setRole(profile.id, 'seeker', 'seeker_category');
-      await this.whatsapp.sendText(waId, '🔎 Əla. Hansı iş/vəzifə üzrə iş axtarırsınız?\n\nMəsələn: Frontend developer, sürücü, mühasib'); return true;
-    }
-    if (value === '2' || value.includes('işçi axtarıram') || value.includes('isci axtariram')) {
-      await this.setRole(profile.id, 'employer', 'employer_company');
-      await this.whatsapp.sendText(waId, '🏢 Əla. Şirkətin adını yazın.'); return true;
-    }
 
+    // Process an active flow before interpreting numeric menu shortcuts such as 1/2.
+    // This prevents employer_work_mode "1 = Ofis" from being mistaken for "1 = İş axtarıram".
     if (profile.state === 'seeker_category') {
       await this.supabase.client.from('job_seeker_preferences').upsert({ profile_id: profile.id, desired_title: raw, updated_at: new Date().toISOString() });
       await this.setState(profile.id, 'seeker_location'); await this.whatsapp.sendText(waId, '📍 Hansı şəhər/rayonda iş axtarırsınız?'); return true;
@@ -79,6 +74,16 @@ export class JobAgentService {
     if (profile.state === 'employer_contact') {
       await this.updateDraftJob(profile.id, { contact_phone: raw, status: 'pending' }); await this.setState(profile.id, 'ready');
       await this.whatsapp.sendText(waId, '✅ Vakansiya qəbul edildi və yoxlanışa göndərildi. Təsdiqdən sonra aktiv olacaq.\n\nYeni əməliyyat üçün “Menyu” yazın.'); return true;
+    }
+
+    // Numeric/text role selection is valid only when no active flow is in progress.
+    if (value === '1' || value.includes('iş axtarıram') || value.includes('is axtariram')) {
+      await this.setRole(profile.id, 'seeker', 'seeker_category');
+      await this.whatsapp.sendText(waId, '🔎 Əla. Hansı iş/vəzifə üzrə iş axtarırsınız?\n\nMəsələn: Frontend developer, sürücü, mühasib'); return true;
+    }
+    if (value === '2' || value.includes('işçi axtarıram') || value.includes('isci axtariram')) {
+      await this.setRole(profile.id, 'employer', 'employer_company');
+      await this.whatsapp.sendText(waId, '🏢 Əla. Şirkətin adını yazın.'); return true;
     }
 
     await this.welcome(waId, displayName); return true;
