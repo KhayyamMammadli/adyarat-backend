@@ -27,7 +27,7 @@ function createHarness() {
     sendAudio: async (waId, bytes, mimeType, filename) => (state.sentAudios.push({ waId, bytes, mimeType, filename }), `out-audio-${++outboundSequence}`),
   };
   const ai = {
-    validateAdvertisementRequest: async () => ({ allowed: true }),
+    validateAdvertisementRequest: async () => ({ isAdvertisement: true, productOrService: 'test məhsulu', goal: 'satış' , reason: 'Sorğu reklam məqsədlidir.' }),
     answer: async (request) => { state.aiRequests.push(request); return { provider: 'gemini', text: request.systemInstruction?.includes('diktor') ? 'Məhsulunuz üçün yaddaqalan və təsirli səsli reklam.' : '🎯 Başlıq: Daha yaxşı seçim\n📝 Reklam mətni: Məhsulunuzu bu gün kəşf edin.' }; },
     synthesizeSpeech: async () => ({ provider: 'openai', bytes: Buffer.from('audio'), mimeType: 'audio/mpeg', filename: 'adyarat-voice-ad.mp3' }),
     enhanceVideoPrompt: async (text) => text,
