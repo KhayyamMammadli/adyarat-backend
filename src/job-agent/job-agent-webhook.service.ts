@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JobAgentService } from './job-agent.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
-import { WhatsAppWebhookPayload } from '../whatsapp/whatsapp.types';
+import {
+  WhatsAppInteractiveMessage,
+  WhatsAppTextMessage,
+  WhatsAppWebhookPayload,
+} from '../whatsapp/whatsapp.types';
 import { extractMessages } from '../whatsapp/webhook.utils';
 
 @Injectable()
@@ -19,23 +23,29 @@ export class JobAgentWebhookService {
         await this.whatsapp.markAsRead(message.id);
 
         if (message.type === 'text' && 'text' in message) {
+          const textMessage = message as WhatsAppTextMessage;
           await this.jobAgent.handleText(
-            message.from,
-            message.text.body,
+            textMessage.from,
+            textMessage.text.body,
             profileName,
           );
           continue;
         }
 
         if (message.type === 'interactive' && 'interactive' in message) {
+          const interactiveMessage = message as WhatsAppInteractiveMessage;
           const value =
-            message.interactive.button_reply?.id ??
-            message.interactive.list_reply?.id ??
-            message.interactive.button_reply?.title ??
-            message.interactive.list_reply?.title;
+            interactiveMessage.interactive.button_reply?.id ??
+            interactiveMessage.interactive.list_reply?.id ??
+            interactiveMessage.interactive.button_reply?.title ??
+            interactiveMessage.interactive.list_reply?.title;
 
           if (value) {
-            await this.jobAgent.handleText(message.from, value, profileName);
+            await this.jobAgent.handleText(
+              interactiveMessage.from,
+              value,
+              profileName,
+            );
             continue;
           }
         }
