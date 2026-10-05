@@ -15,7 +15,9 @@ import { ConfigService } from '@nestjs/config';
 const point = { latitude: 40.4093, longitude: 49.8671, address: 'Bakı, Nizami 1' };
 async function start(f, mode = 'office') {
   await f.action('job:employer');
-  for (const t of ['Company', '1500315641', 'hr@example.com', 'Frontend', 'Bakı']) await f.text(t);
+  for (const t of ['Company', '1500315641', 'hr@example.com']) await f.text(t);
+  await f.action('job:employer:new');
+  for (const t of ['Frontend', 'Bakı']) await f.text(t);
   await f.action(`job:mode:employer:${mode}`);
 }
 async function finish(f) {
@@ -52,6 +54,9 @@ test('email validation rejects malformed values, persists email, never exposes W
     assert.equal(validEmail(t), false);
   }
   await f.text('HR@example.com');
+  assert.equal(f.state(), 'employer_ready');
+  assert.equal(f.tables.jobs.length, 0);
+  await f.action('job:employer:new');
   await f.text('Frontend');
   assert.equal(f.tables.employer_profiles[0].email, 'hr@example.com');
   assert.equal(f.tables.jobs[0].contact_email, 'hr@example.com');
