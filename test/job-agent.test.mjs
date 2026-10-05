@@ -4,7 +4,14 @@ import { JobAgentWebhookService } from '../dist/job-agent/job-agent-webhook.serv
 import { WhatsAppClientService } from '../dist/whatsapp/whatsapp-client.service.js';
 import { ConfigService } from '@nestjs/config';
 
-import { fixture, employerDraft, seeker, seedJobs, last } from './helpers/job-agent-fixture.mjs';
+import {
+  fixture,
+  employerDraft,
+  seeker,
+  seedJobs,
+  last,
+  approvedEmployer,
+} from './helpers/job-agent-fixture.mjs';
 
 test('first message and bare menu numbers only open interactive main menu', async () => {
   const f = fixture();
@@ -32,16 +39,15 @@ test('salary rejects malformed or negative input and accepts zero', async () => 
     assert.equal(f.state(), 'seeker_salary');
   }
   await f.text('0');
+  await f.text('hr@example.com');
+  await f.text('+994501234567');
   assert.equal(f.state(), 'ready');
   assert.equal(f.tables.job_seeker_preferences[0].salary_min, 0);
 });
 test('role actions interrupt active state and reset incomplete data/draft pointer', async () => {
   const f = fixture();
   await seeker(f);
-  await f.action('job:employer');
-  await f.text('Company');
-  await f.text('1500315641');
-  await f.text('hr@example.com');
+  await approvedEmployer(f);
   await f.action('job:employer:new');
   await f.text('Title');
   const draft = f.tables.jobs[0];
@@ -58,7 +64,7 @@ test('menu resets active state and old interactive replies cannot become text an
   const f = fixture();
   await f.action('job:employer');
   await f.action('job:mode:employer:office');
-  assert.equal(f.state(), 'employer_company');
+  assert.equal(f.state(), 'business_type');
   assert.equal(f.tables.employer_profiles[0].company_name, undefined);
   await f.action('job:menu');
   assert.equal(f.state(), 'ready');
@@ -69,11 +75,8 @@ test('menu resets active state and old interactive replies cannot become text an
 });
 test('numeric answers are current-step data, never global role shortcuts', async () => {
   const f = fixture();
-  await f.action('job:employer');
-  await f.text('1');
+  await approvedEmployer(f, '1');
   assert.equal(f.tables.employer_profiles[0].company_name, '1');
-  await f.text('1500315641');
-  await f.text('hr@example.com');
   await f.action('job:employer:new');
   await f.text('2');
   assert.equal(f.tables.jobs[0].title, '2');
@@ -97,15 +100,14 @@ test('employer flow keeps company, preview and contact in draft until explicit c
   await f.action(`job:confirm:${job.id}`);
   assert.equal(job.status, 'pending');
   assert.equal(f.state(), 'ready');
-  assert.equal(f.notices.length, 1);
-  assert.equal(f.noticeButtons[0].inline_keyboard[0][0].callback_data, 'tg:approve:1');
+  assert.equal(f.notices.length, 2);
+  assert.equal(f.noticeButtons.at(-1).inline_keyboard[0][0].callback_data, 'tg:approve:1');
   await f.action(`job:confirm:${job.id}`);
-  assert.equal(f.notices.length, 1);
+  assert.equal(f.notices.length, 2);
 });
 test('maximum salary and contact validation preserve current state', async () => {
   const f = fixture();
-  await f.action('job:employer');
-  for (const text of ['Company', '1500315641', 'hr@example.com']) await f.text(text);
+  await approvedEmployer(f);
   await f.action('job:employer:new');
   for (const text of ['Title', 'Bakı', '3']) await f.text(text);
   await f.service.handleLocation('wa1', { latitude: 40.4, longitude: 49.8 });
@@ -127,10 +129,7 @@ test('database errors propagate and do not advance seeker state', async () => {
 });
 test('draft updates enforce ownership and draft status', async () => {
   const f = fixture();
-  await f.action('job:employer');
-  await f.text('Company');
-  await f.text('1500315641');
-  await f.text('hr@example.com');
+  await approvedEmployer(f);
   await f.action('job:employer:new');
   await f.text('Title');
   f.tables.jobs[0].metadata.employer_profile_id = 'other';
@@ -220,7 +219,7 @@ test('stale pagination does not interrupt new employer flow', async () => {
   await f.action('job:all');
   await f.action('job:employer');
   await f.action('job:page:all:1');
-  assert.equal(f.state(), 'employer_company');
+  assert.equal(f.state(), 'business_type');
 });
 test('profile view reads persisted seeker and employer data', async () => {
   const f = fixture();
@@ -270,6 +269,12 @@ test('webhook separates text, interactive IDs and unsupported media', async () =
         type: 'interactive',
         interactive: { list_reply: { id: 'job:employer', title: 'ignored' } },
       },
+      {
+        id: 'type',
+        from: 'wa1',
+        type: 'interactive',
+        interactive: { list_reply: { id: 'job:business:type:company' } },
+      },
       { id: '2', from: 'wa1', type: 'text', text: { body: 'Yelo' } },
       { id: '3', from: 'wa1', type: 'image', image: { id: 'img' } },
     ]),
@@ -277,7 +282,7 @@ test('webhook separates text, interactive IDs and unsupported media', async () =
   assert.equal(f.state(), 'employer_voen');
   assert.equal(f.tables.employer_profiles[0].company_name, 'Yelo');
   assert.equal(f.tables.jobs.length, 0);
-  assert.equal(last(f, 'sendJobMainMenu').args[0], 'wa1');
+  assert.match(last(f, 'sendJobButtons').args[1], /Şəkil cari addımda/);
 });
 test('interactive client serializes job menu/buttons within Meta limits and preserves BSUID routing', async () => {
   const client = new WhatsAppClientService(

@@ -9,6 +9,7 @@ on:
       - feat/vacancy-aggregator
       - feat/employer-location-vacancy-filters
       - feat/employer-profile-onboarding
+      - feat/business-registration-moderation
   pull_request:
 
 jobs:

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fixture, employerDraft, seeker, seedJobs, last } from './helpers/job-agent-fixture.mjs';
+import {
+  fixture,
+  employerDraft,
+  seeker,
+  seedJobs,
+  last,
+  approvedEmployer,
+} from './helpers/job-agent-fixture.mjs';
 import {
   validVoen,
   validEmail,
@@ -14,8 +21,7 @@ import { ConfigService } from '@nestjs/config';
 
 const point = { latitude: 40.4093, longitude: 49.8671, address: 'Bakı, Nizami 1' };
 async function start(f, mode = 'office') {
-  await f.action('job:employer');
-  for (const t of ['Company', '1500315641', 'hr@example.com']) await f.text(t);
+  await approvedEmployer(f);
   await f.action('job:employer:new');
   for (const t of ['Frontend', 'Bakı']) await f.text(t);
   await f.action(`job:mode:employer:${mode}`);
@@ -32,6 +38,7 @@ const ids = (f) =>
 test('VÖEN accepts only nonzero ten digits and blocks vacancy insertion until present', async () => {
   const f = fixture();
   await f.action('job:employer');
+  await f.action('job:business:type:company');
   await f.text('Company');
   for (const t of ['', '123', '12345678901', '12abcdefgh', '0000000000', 'Title']) {
     await f.text(t);
@@ -40,22 +47,30 @@ test('VÖEN accepts only nonzero ten digits and blocks vacancy insertion until p
   }
   await f.text('1500315641');
   assert.equal(f.tables.employer_profiles[0].voen, '1500315641');
-  assert.equal(f.state(), 'employer_email');
+  assert.equal(f.state(), 'business_photo');
   assert.equal(validVoen(' 1500315641'), false);
 });
 test('email validation rejects malformed values, persists email, never exposes WhatsApp as public phone', async () => {
   const f = fixture();
   await f.action('job:employer');
+  await f.action('job:business:type:company');
   await f.text('Company');
   await f.text('1500315641');
+  await f.service.handleImage('wa1', { id: 'photo' });
+  for (const t of ['Owner', 'Business', 'Bakı']) await f.text(t);
   for (const t of ['bad', 'a@', 'a@b', 'a b@example.com', 'a@-example.com', 'a..b@example.com']) {
     await f.text(t);
     assert.equal(f.state(), 'employer_email');
     assert.equal(validEmail(t), false);
   }
   await f.text('HR@example.com');
-  assert.equal(f.state(), 'employer_ready');
+  assert.equal(f.state(), 'business_phone');
   assert.equal(f.tables.jobs.length, 0);
+  await f.text('+994501234567');
+  await f.action('job:business:submit');
+  const e = f.tables.employer_profiles[0];
+  await f.businesses.moderate(e.profile_id, e.registration_token, true, 7);
+  await f.action('job:employer');
   await f.action('job:employer:new');
   await f.text('Frontend');
   assert.equal(f.tables.employer_profiles[0].email, 'hr@example.com');
@@ -67,7 +82,7 @@ test('legacy employer without VÖEN must complete credentials before its next va
   await f.text('salam');
   f.tables.employer_profiles.push({ profile_id: 'p1', company_name: 'Old', metadata: {} });
   await f.action('job:employer');
-  await f.text('Old');
+  await f.action('job:business:type:company');
   await f.text('A title');
   assert.equal(f.state(), 'employer_voen');
   assert.equal(f.tables.jobs.length, 0);
@@ -106,7 +121,7 @@ test('remote skips GPS and optional phone skip completes moderation without publ
   assert.equal(job.latitude, undefined);
   await f.action('job:confirm:1');
   assert.equal(job.status, 'pending');
-  assert.doesNotMatch(f.notices[0], /wa1/);
+  assert.doesNotMatch(f.notices.at(-1), /wa1/);
 });
 test('optional public contact still validates, stale contact controls do not affect other flows', async () => {
   const f = fixture();
@@ -130,6 +145,10 @@ test('publication guard catches missing credentials/GPS even for existing draft 
   assert.equal(job.status, 'draft');
   assert.equal(f.state(), 'employer_voen');
   await f.text('1500315641');
+  await approvedEmployer(f);
+  await f.action('job:employer:new');
+  f.tables.employer_profiles[0].metadata.draft_job_id = job.id;
+  f.tables.job_agent_profiles[0].state = 'employer_confirm';
   assert.equal(f.state(), 'employer_confirm');
   assert.equal(f.tables.jobs.length, 1);
   job.latitude = null;
@@ -331,9 +350,14 @@ test('filter sessions survive service restart and remain independent between Wha
   await f.action('job:filter:menu');
   await f.action('job:filter:title');
   await f.text('Frontend 1');
-  const service = new JobAgentService({ client: f.client }, f.whatsapp, {
-    sendMessage: async () => {},
-  });
+  const service = new JobAgentService(
+    { client: f.client },
+    f.whatsapp,
+    {
+      sendMessage: async () => {},
+    },
+    f.businesses,
+  );
   await service.handleInteractive('wa1', 'job:filter:apply');
   assert.deepEqual(ids(f), [1]);
   await service.handleInteractive('wa2', 'job:all');

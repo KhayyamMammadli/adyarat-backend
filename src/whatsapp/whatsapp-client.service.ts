@@ -720,44 +720,43 @@ async sendQuickActions(
     );
   }
 
-  async downloadMedia(
-    mediaId: string,
-  ): Promise<DownloadedMedia> {
-    const metadata =
-      await this.graphRequest<MetaMediaMetadata>(
-        mediaId,
-        {
-          method: 'GET',
-        },
-      );
-
+  async downloadMedia(mediaId: string, maxBytes?: number): Promise<DownloadedMedia> {
+    const metadata = await this.graphRequest<MetaMediaMetadata>(mediaId, { method: 'GET' });
+    if (maxBytes && metadata.file_size && metadata.file_size > maxBytes)
+      throw new Error('WhatsApp media exceeds size limit');
     const response = await fetch(metadata.url, {
-      headers: {
-        Authorization:
-          `Bearer ${this.requireAccessToken()}`,
-      },
+      headers: { Authorization: `Bearer ${this.requireAccessToken()}` },
+      signal: AbortSignal.timeout(15000),
     });
-
-    if (!response.ok) {
+    if (!response.ok)
       throw new ExternalServiceError(
         `Could not download WhatsApp media (${response.status})`,
         response.status,
-        await response.text(),
       );
-    }
-
-    const bytes = Buffer.from(
-      await response.arrayBuffer(),
-    );
-
+    let bytes: Buffer;
+    if (maxBytes) {
+      if (!response.body) throw new Error('WhatsApp media is empty');
+      const reader = response.body.getReader(),
+        chunks: Uint8Array[] = [];
+      let total = 0;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          total += value.length;
+          if (total > maxBytes) throw new Error('WhatsApp media exceeds size limit');
+          chunks.push(value);
+        }
+      } finally {
+        await reader.cancel();
+      }
+      bytes = Buffer.concat(chunks);
+    } else bytes = Buffer.from(await response.arrayBuffer());
     return {
       bytes,
       mimeType:
-        metadata.mime_type ??
-        response.headers.get('content-type') ??
-        'application/octet-stream',
-      fileSize:
-        metadata.file_size ?? bytes.length,
+        metadata.mime_type ?? response.headers.get('content-type') ?? 'application/octet-stream',
+      fileSize: bytes.length,
     };
   }
 

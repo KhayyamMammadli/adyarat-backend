@@ -1,3 +1,7 @@
+import {
+  BusinessRegistrationService,
+  voenEvidence,
+} from '../job-agent/business-registration.service';
 import { validCoordinates, validEmail } from '../job-agent/vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
@@ -14,6 +18,7 @@ import { formatTelegramJob, moderationButtons } from './job-message';
 const PANEL: InlineKeyboard = {
   inline_keyboard: [
     [{ text: '➕ Vakansiya əlavə et', callback_data: 'tg:new' }],
+    [{ text: '🏢 Biznes profilləri', callback_data: 'tg:businesses' }],
     [{ text: '📋 Gözləyən vakansiyalar', callback_data: 'tg:pending' }],
   ],
 };
@@ -49,6 +54,7 @@ export class TelegramJobAdminService {
     private readonly jobs: JobAdminService,
     private readonly states: TelegramAdminStateService,
     private readonly telegram: TelegramTransport,
+    private readonly businesses: BusinessRegistrationService,
   ) {}
 
   async handle(actor: AdminActor, update: TelegramUpdate): Promise<boolean> {
@@ -95,6 +101,64 @@ export class TelegramJobAdminService {
     if (action === 'tg:admin' || ['/admin', '/start', '/menu', '/cancel'].includes(command ?? '')) {
       await this.states.save(state, idle());
       await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
+      return true;
+    }
+    if (action === 'tg:businesses') {
+      await this.businesses.pending(actor.chatId);
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
+      return true;
+    }
+    const business = /^biz:([ar]):([0-9a-f-]{36}):([0-9a-f]{12})$/.exec(action ?? '');
+    if (business) {
+      const e = await this.businesses.employer(business[2]);
+      if (
+        business[1] === 'a' &&
+        e?.registration_status === 'pending' &&
+        e.registration_token === business[3] &&
+        !voenEvidence(e)
+      ) {
+        await this.promptAndSave(actor, state, {
+          kind: 'business_verify',
+          step: 'legal_name',
+          nonce: nonce(),
+          businessId: business[2],
+          registrationToken: business[3],
+          draft: { voen: e.voen },
+          moderationMessageId: update.callback_query?.message?.message_id,
+          lastUpdateId: nextId,
+          expiresAt: this.expiry(),
+        });
+        return true;
+      }
+      try {
+        const changed = await this.businesses.moderate(
+          business[2],
+          business[3],
+          business[1] === 'a',
+          actor.userId,
+        );
+        if (changed)
+          await this.removeModerationButtons(
+            actor.chatId,
+            update.callback_query?.message?.message_id,
+          );
+        await this.telegram.sendTo(
+          actor.chatId,
+          changed
+            ? business[1] === 'a'
+              ? '✅ Biznes profili təsdiqləndi.'
+              : '❌ Biznes profili rədd edildi.'
+            : 'Bu profil artıq yoxlanılıb və ya düymə köhnədir.',
+          PANEL,
+        );
+      } catch {
+        await this.telegram.sendTo(
+          actor.chatId,
+          'Profil əməliyyatı alınmadı. Yenidən cəhd edin.',
+          PANEL,
+        );
+      }
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
     if (action === 'tg:pending' || command === '/pending' || command === '/vakansiyalar') {
@@ -184,6 +248,61 @@ export class TelegramJobAdminService {
       return true;
     }
 
+    if (state.session.kind === 'business_verify') {
+      const session = state.session;
+      if (action === `tg:business:${session.nonce}:verify` && session.step === 'confirm') {
+        try {
+          const verified = await this.businesses.verifyManually(
+            session.businessId!,
+            session.registrationToken!,
+            String(session.draft?.legalName ?? ''),
+            actor.userId,
+          );
+          const approved =
+            verified &&
+            (await this.businesses.moderate(
+              session.businessId!,
+              session.registrationToken!,
+              true,
+              actor.userId,
+            ));
+          if (approved)
+            await this.removeModerationButtons(actor.chatId, session.moderationMessageId);
+          await this.states.save(state, idle());
+          await this.telegram.sendTo(
+            actor.chatId,
+            approved
+              ? '✅ VÖEN admin tərəfindən yoxlanıldı və biznes profili təsdiqləndi.'
+              : 'Profil dəyişib və ya artıq yoxlanılıb. Biznes panelindən yenidən açın.',
+            PANEL,
+          );
+        } catch {
+          await this.telegram.sendTo(
+            actor.chatId,
+            'Yoxlama saxlanılmadı. Biznes profilinin statusunu paneldən yoxlayın.',
+            PANEL,
+          );
+        }
+        return true;
+      }
+      if (!action && text && !command?.startsWith('/') && session.step === 'legal_name') {
+        if (!this.matchesReply(actor, session, update)) {
+          await this.telegram.sendTo(actor.chatId, 'VÖEN yoxlaması sualına Reply edin.');
+          return true;
+        }
+        if (text.length > 250) {
+          await this.telegram.sendTo(actor.chatId, 'Rəsmi ad 1–250 simvol olmalıdır.');
+          return true;
+        }
+        await this.promptAndSave(actor, state, {
+          ...session,
+          step: 'confirm',
+          draft: { ...session.draft, legalName: text },
+          lastUpdateId: nextId,
+        });
+        return true;
+      }
+    }
     if (state.session.kind === 'create') {
       const prefix = `tg:create:${state.session.nonce}:`;
       if (action === `${prefix}publish` && state.session.step === 'confirm') {
@@ -336,7 +455,18 @@ export class TelegramJobAdminService {
   ): Promise<void> {
     const cancel = { text: '↩️ Ləğv et', callback_data: `tg:cancel:${session.nonce}` };
     let message: { message_id: number };
-    if (session.kind === 'create' && session.step === 'work_mode') {
+    if (session.kind === 'business_verify' && session.step === 'confirm') {
+      message = await this.telegram.sendTo(
+        actor.chatId,
+        `VÖEN: ${session.draft?.voen}\nRəsmi qeydiyyat adı: ${session.draft?.legalName}\nBu VÖEN-in DVX bazasında mövcudluğunu şəxsən yoxladığınızı təsdiqləyin. Bu düymə avtomatik yoxlama etmir.`,
+        {
+          inline_keyboard: [
+            [{ text: '✅ VÖEN-i yoxladım', callback_data: `tg:business:${session.nonce}:verify` }],
+            [cancel],
+          ],
+        },
+      );
+    } else if (session.kind === 'create' && session.step === 'work_mode') {
       message = await this.telegram.sendTo(actor.chatId, '💼 İş rejimini seçin.', {
         inline_keyboard: [
           [
@@ -365,9 +495,11 @@ export class TelegramJobAdminService {
       );
     } else {
       const question =
-        session.kind === 'reject'
-          ? `❌ #${session.jobId} üçün rədd səbəbini yazın (1–500 simvol).`
-          : QUESTIONS[session.step!];
+        session.kind === 'business_verify'
+          ? `VÖEN: ${session.draft?.voen}\nRəsmi DVX səhifəsi: https://new.e-taxes.gov.az/etaxes/services/taxpayer-info\nVÖEN-i rəsmi bazada yoxlayın. Qeyd tapılıb biznesə uyğun gəlirsə, oradakı qeydiyyat adını yazın. Yoxlaya bilmirsinizsə təsdiqləməyin; /cancel ilə geri qayıdın və lazım olduqda profili rədd edin.`
+          : session.kind === 'reject'
+            ? `❌ #${session.jobId} üçün rədd səbəbini yazın (1–500 simvol).`
+            : QUESTIONS[session.step!];
       message = await this.telegram.sendTo(actor.chatId, question, { force_reply: true });
       const buttons = [cancel];
       if (session.step === 'salary')

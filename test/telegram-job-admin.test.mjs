@@ -23,7 +23,7 @@ function adminFixture(config = {}) {
     clearButtons: async (...args) => cleared.push(args),
   };
   const states = new TelegramAdminStateService({ client: f.client });
-  let jobs = new TelegramJobAdminService(f.admin, states, telegram);
+  let jobs = new TelegramJobAdminService(f.admin, states, telegram, f.businesses);
   const settings = new ConfigService({
     TELEGRAM_ADMIN_CHAT_ID: '7',
     TELEGRAM_WEBHOOK_SECRET: 'fixture-secret',
@@ -61,7 +61,7 @@ function adminFixture(config = {}) {
     f.tables.employer_profiles.find((p) => p.metadata?.telegram_admin_session)?.metadata
       .telegram_admin_session;
   const restart = () => {
-    jobs = new TelegramJobAdminService(f.admin, states, telegram);
+    jobs = new TelegramJobAdminService(f.admin, states, telegram, f.businesses);
     controller = new TelegramController(
       settings,
       { handleCommand: async (text) => legacy.push(text) },
@@ -115,10 +115,10 @@ test('WhatsApp employer submission attaches approve/reject inline buttons', asyn
   const job = await pendingWhatsapp(f);
   assert.equal(job.status, 'pending');
   assert.deepEqual(
-    f.noticeButtons[0].inline_keyboard[0].map((b) => b.callback_data),
+    f.noticeButtons.at(-1).inline_keyboard[0].map((b) => b.callback_data),
     ['tg:approve:1', 'tg:reject:1'],
   );
-  assert.doesNotMatch(f.notices[0], /\/approve|\/reject/);
+  assert.doesNotMatch(f.notices.at(-1), /\/approve|\/reject/);
 });
 test('approve callback activates shared vacancy and appears immediately in WhatsApp all/matching views', async () => {
   const f = adminFixture();

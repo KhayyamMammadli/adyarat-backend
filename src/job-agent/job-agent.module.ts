@@ -1,3 +1,5 @@
+import { BusinessRegistrationService } from './business-registration.service';
+import { TaxpayerRegistryService } from './taxpayer-registry.service';
 import { TelegramTransportModule } from '../telegram/telegram-transport.module';
 import { Module } from '@nestjs/common';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -8,7 +10,14 @@ import { JobAgentWebhookService } from './job-agent-webhook.service';
 
 @Module({
   imports: [WhatsAppModule, TelegramTransportModule],
-  providers: [JobAdminService, JobAgentService, JobAgentWebhookService, WhatsAppWebhookWorker],
-  exports: [JobAdminService, JobAgentService, JobAgentWebhookService],
+  providers: [
+    BusinessRegistrationService,
+    TaxpayerRegistryService,
+    JobAdminService,
+    JobAgentService,
+    JobAgentWebhookService,
+    WhatsAppWebhookWorker,
+  ],
+  exports: [BusinessRegistrationService, JobAdminService, JobAgentService, JobAgentWebhookService],
 })
 export class JobAgentModule {}

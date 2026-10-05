@@ -1,10 +1,5 @@
-import {
-  validVoen,
-  validEmail,
-  validPhone,
-  validCoordinates,
-  mapsLink,
-} from './vacancy-validation';
+import { BusinessRegistrationService } from './business-registration.service';
+import { validPhone, validCoordinates, mapsLink } from './vacancy-validation';
 import {
   activeVacancies,
   matchingVacancies,
@@ -35,6 +30,8 @@ type Profile = {
   role?: string;
   state: string;
   browse_filters?: Record<string, any>;
+  contact_email?: string;
+  contact_phone?: string;
 };
 type Vacancy = {
   id: number;
@@ -61,6 +58,7 @@ export class JobAgentService {
     private readonly supabase: SupabaseService,
     private readonly whatsapp: WhatsAppClientService,
     private readonly telegram: TelegramNotifications,
+    private readonly businesses: BusinessRegistrationService,
   ) {}
 
   async welcome(waId: string, displayName?: string): Promise<void> {
@@ -96,6 +94,7 @@ export class JobAgentService {
       );
       return;
     }
+    if (await this.businesses.interactive(profile, action)) return;
     if (action === 'job:employer') {
       await this.resetBrowse(profile.id);
       const employer = await this.employer(profile.id);
@@ -128,15 +127,6 @@ export class JobAgentService {
         metadata: { ...(employer?.metadata ?? {}), draft_job_id: null, location_return: null },
       });
       await this.requireEmployer(waId, profile.id, 'employer_job_title');
-      return;
-    }
-    if (
-      action === 'job:employer:edit' &&
-      profile.role === 'employer' &&
-      profile.state === 'employer_ready'
-    ) {
-      await this.setState(profile.id, 'employer_company');
-      await this.prompt(waId, '🏢 Şirkətin adını yazın.');
       return;
     }
     if (action === 'job:all' || action === 'job:matches') {
@@ -248,6 +238,18 @@ export class JobAgentService {
       await this.prompt(waId, `Cavab 1–${limit} simvol arasında olmalıdır.`);
       return true;
     }
+    if (await this.businesses.text(profile, raw)) return true;
+    if (['seeker_email', 'seeker_phone'].includes(profile.state)) {
+      if (
+        await this.businesses.claimContact(
+          profile,
+          profile.state === 'seeker_email' ? 'email' : 'phone',
+          raw,
+        )
+      )
+        await this.businesses.seekerContact(profile);
+      return true;
+    }
     if (profile.state === 'seeker_category') {
       await this.savePreference(profile.id, { desired_title: raw });
       await this.setState(profile.id, 'seeker_location');
@@ -267,36 +269,10 @@ export class JobAgentService {
         return true;
       }
       await this.savePreference(profile.id, { salary_min: salary });
-      await this.setState(profile.id, 'ready');
-      await this.whatsapp.sendText(waId, '✅ İş profiliniz saxlanıldı.');
-      await this.whatsapp.sendJobMainMenu(waId);
-    } else if (profile.state === 'employer_company') {
-      await this.write(
-        this.supabase.client
-          .from('employer_profiles')
-          .upsert(
-            { profile_id: profile.id, company_name: raw, updated_at: this.now() },
-            { onConflict: 'profile_id' },
-          ),
-      );
-      await this.requireEmployer(waId, profile.id);
-    } else if (profile.state === 'employer_voen') {
-      if (!validVoen(raw)) {
-        await this.prompt(waId, 'VÖEN 10 rəqəmdən ibarət olmalıdır.');
-        return true;
-      }
-      await this.saveEmployer(profile.id, { voen: raw });
-      await this.requireEmployer(waId, profile.id);
-    } else if (profile.state === 'employer_email') {
-      if (!validEmail(raw)) {
-        await this.prompt(waId, 'Düzgün email yazın. Məsələn: hr@example.com');
-        return true;
-      }
-      await this.saveEmployer(profile.id, { email: raw.toLowerCase() });
-      await this.requireEmployer(waId, profile.id);
+      await this.businesses.seekerContact(profile);
     } else if (profile.state === 'employer_job_title') {
       const employer = await this.employer(profile.id);
-      if (!validVoen(employer?.voen) || !validEmail(employer?.email)) {
+      if (!(await this.businesses.isApproved(profile.id))) {
         await this.requireEmployer(waId, profile.id);
         return true;
       }
@@ -307,8 +283,8 @@ export class JobAgentService {
           title: raw,
           company_name: employer?.company_name,
           status: 'draft',
-          contact_email: employer.email,
-          metadata: { employer_profile_id: profile.id },
+          contact_email: profile.contact_email,
+          metadata: { employer_profile_id: profile.id, business_registration_version: 1 },
         })
         .select('*')
         .single();
@@ -428,52 +404,17 @@ export class JobAgentService {
     );
   }
   private async requireEmployer(waId: string, id: string, resume?: string): Promise<void> {
-    const employer = await this.employer(id);
-    if (resume)
-      await this.saveEmployer(id, {
-        metadata: { ...(employer?.metadata ?? {}), onboarding_return: resume },
-      });
-    const target = resume ?? employer?.metadata?.onboarding_return ?? 'employer_ready';
-    const state = !employer?.company_name?.trim()
-      ? 'employer_company'
-      : !validVoen(employer?.voen)
-        ? 'employer_voen'
-        : !validEmail(employer?.email)
-          ? 'employer_email'
-          : target;
-    await this.setState(id, state);
-    if (state === 'employer_ready') {
-      await this.saveEmployer(id, {
-        metadata: { ...(employer?.metadata ?? {}), onboarding_return: null },
-      });
-      await this.whatsapp.sendJobButtons(
-        waId,
-        `✅ İşəgötürən profiliniz saxlanılıb.\n🏢 ${employer.company_name}\nVÖEN: ${employer.voen}\n📧 ${employer.email}\nVakansiya yaratmaq üçün seçim edin.`,
-        [
-          { id: 'job:employer:new', title: 'Vakansiya əlavə et' },
-          { id: 'job:employer:edit', title: '✏️ Şirkəti dəyiş' },
-          MENU,
-        ],
-      );
+    if (resume && (await this.businesses.isApproved(id))) {
+      await this.setState(id, resume);
+      if (resume === 'employer_confirm') await this.sendConfirmation(waId, await this.draft(id));
+      else await this.prompt(waId, '📢 Vakansiyanın adını yazın.');
       return;
     }
-    if (state === 'employer_confirm') {
-      await this.saveEmployer(id, {
-        metadata: { ...(employer?.metadata ?? {}), onboarding_return: null },
-      });
-      await this.sendConfirmation(waId, await this.draft(id));
-      return;
-    }
-    await this.prompt(
-      waId,
-      state === 'employer_company'
-        ? '🏢 Şirkətin adını yazın.'
-        : state === 'employer_voen'
-          ? '🏢 10 rəqəmli VÖEN-i yazın.'
-          : state === 'employer_email'
-            ? '📧 İşəgötürən email ünvanını yazın (namizədlərə göstəriləcək).'
-            : '📢 Vakansiyanın adını yazın.',
-    );
+    await this.businesses.require(waId, id);
+  }
+  async handleImage(waId: string, image: { id: string }, displayName?: string): Promise<void> {
+    const profile = await this.upsertProfile(waId, displayName);
+    await this.businesses.image(profile, image.id);
   }
   private async saveFilters(id: string, filters: Record<string, unknown>): Promise<void> {
     await this.write(
@@ -674,7 +615,7 @@ export class JobAgentService {
   }
   private async submit(waId: string, profileId: string, job: Vacancy): Promise<void> {
     const employer = await this.employer(profileId);
-    if (!validVoen(employer?.voen) || !validEmail(employer?.email)) {
+    if (!(await this.businesses.isApproved(profileId))) {
       await this.requireEmployer(waId, profileId, 'employer_confirm');
       return;
     }
@@ -686,7 +627,10 @@ export class JobAgentService {
       await this.prompt(waId, '📍 İş yerinin dəqiq lokasiyasını göndərin.');
       return;
     }
-    await this.updateDraft(profileId, { status: 'pending' });
+    await this.updateDraft(profileId, {
+      status: 'pending',
+      metadata: { ...(job.metadata ?? {}), business_registration_version: 1 },
+    });
     await this.setState(profileId, 'ready');
     await this.telegram.sendMessage(
       `📋 Yeni vakansiya moderasiyaya göndərildi\n${formatTelegramJob(job)}`,
@@ -799,9 +743,10 @@ export class JobAgentService {
         `Şəhər: ${pref?.location_name ?? 'Daxil edilməyib'}`,
         `İş rejimi: ${pref?.work_modes?.join(', ') || 'Daxil edilməyib'}`,
         `Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`,
-        `Şirkət: ${employer?.company_name ?? 'Daxil edilməyib'}`,
+        `Biznes: ${employer?.company_name ?? 'Daxil edilməyib'}`,
         `VÖEN: ${employer?.voen ?? 'Daxil edilməyib'}`,
-        `Email: ${employer?.email ?? 'Daxil edilməyib'}`,
+        `Email: ${profile.contact_email ?? employer?.email ?? 'Daxil edilməyib'}`,
+        `Biznes təsdiqi: ${employer?.registration_status ?? 'draft'}`,
       ].join('\n'),
     );
     await this.whatsapp.sendJobMainMenu(waId);

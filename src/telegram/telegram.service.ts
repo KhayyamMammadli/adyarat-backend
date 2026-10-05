@@ -52,6 +52,21 @@ export class TelegramAdminService {
     });
   }
 
+  async sendPhoto(
+    photo: string,
+    caption: string,
+    replyMarkup: InlineKeyboard,
+    chatId?: number,
+  ): Promise<void> {
+    const target = chatId ?? this.config.get<string>('TELEGRAM_ADMIN_CHAT_ID')?.trim();
+    if (!target || !this.isEnabled()) throw new Error('Telegram admin is not configured');
+    if (caption.length > 1024) throw new Error('Telegram photo caption exceeds limit');
+    for (const b of replyMarkup.inline_keyboard.flat())
+      if (!b.callback_data || Buffer.byteLength(b.callback_data) > 64)
+        throw new Error('Invalid callback');
+    await this.request('sendPhoto', { chat_id: target, photo, caption, reply_markup: replyMarkup });
+  }
+
   async answerCallback(id: string, text?: string): Promise<void> {
     await this.request('answerCallbackQuery', {
       callback_query_id: id,
