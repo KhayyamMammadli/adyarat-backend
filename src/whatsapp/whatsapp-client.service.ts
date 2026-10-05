@@ -137,16 +137,27 @@ export class WhatsAppClientService {
     });
   }
 
-  async sendJobMainMenu(to: string, displayName?: string): Promise<string> {
+  async sendJobMainMenu(
+    to: string,
+    displayName?: string,
+    role?: 'seeker' | 'employer',
+  ): Promise<string> {
     return this.sendJobList(
       to,
       `${displayName ? `Salam, ${displayName.slice(0, 100)}! 👋` : 'Salam! 👋'}\nVakansiya xidmətinə xoş gəlmisiniz. Aşağıdan seçim edin.`,
       [
-        { id: 'job:seeker', title: '🔎 İş axtarıram' },
-        { id: 'job:employer', title: '🏢 İşçi axtarıram' },
+        ...(role === 'employer'
+          ? [{ id: 'job:employer:new', title: '➕ Vakansiya yerləşdir' }]
+          : role === 'seeker'
+            ? []
+            : [
+                { id: 'job:seeker', title: '🔎 İş axtarıram' },
+                { id: 'job:employer', title: '🏢 İşçi axtarıram' },
+              ]),
         { id: 'job:all', title: '📋 Bütün vakansiyalar' },
         { id: 'job:profile', title: '👤 Profilim' },
         { id: 'job:matches', title: 'Mənə uyğun vakansiyalar' },
+        ...(role === 'seeker' ? [{ id: 'job:filters', title: '🔍 Filterlə' }] : []),
       ],
     );
   }

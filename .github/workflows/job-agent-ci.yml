@@ -10,6 +10,7 @@ on:
       - feat/employer-location-vacancy-filters
       - feat/employer-profile-onboarding
       - feat/business-registration-moderation
+      - feat/role-menu-quick-filters
   pull_request:
 
 jobs:

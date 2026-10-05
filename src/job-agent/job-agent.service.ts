@@ -65,7 +65,25 @@ export class JobAgentService {
     const profile = await this.upsertProfile(waId, displayName);
     await this.resetBrowse(profile.id);
     await this.setState(profile.id, 'ready');
-    await this.whatsapp.sendJobMainMenu(waId, displayName);
+    await this.sendMainMenu(waId, displayName);
+  }
+
+  async sendMainMenu(waId: string, displayName?: string): Promise<void> {
+    const profile = await this.upsertProfile(waId, displayName);
+    let role: 'seeker' | 'employer' | undefined;
+    if (
+      profile.role === 'seeker' &&
+      profile.contact_email &&
+      profile.contact_phone &&
+      completePreference(await this.preference(profile.id))
+    )
+      role = 'seeker';
+    if (profile.role === 'employer') {
+      const employer = await this.employer(profile.id);
+      if (['pending', 'approved', 'rejected'].includes(employer?.registration_status))
+        role = 'employer';
+    }
+    await this.whatsapp.sendJobMainMenu(waId, displayName, role);
   }
 
   async handleInteractive(waId: string, action: string, displayName?: string): Promise<void> {
@@ -120,13 +138,17 @@ export class JobAgentService {
     if (
       action === 'job:employer:new' &&
       profile.role === 'employer' &&
-      ['employer_ready', 'employer_confirm'].includes(profile.state)
+      ['ready', 'employer_ready', 'employer_confirm'].includes(profile.state)
     ) {
       const employer = await this.employer(profile.id);
       await this.saveEmployer(profile.id, {
         metadata: { ...(employer?.metadata ?? {}), draft_job_id: null, location_return: null },
       });
       await this.requireEmployer(waId, profile.id, 'employer_job_title');
+      return;
+    }
+    if (action === 'job:filters') {
+      await this.filterMenu(waId, profile);
       return;
     }
     if (action === 'job:all' || action === 'job:matches') {
@@ -352,7 +374,7 @@ export class JobAgentService {
       await this.sendConfirmation(waId, await this.draft(profile.id));
     } else {
       // Bare 1/2/3 have no global role meaning.
-      await this.whatsapp.sendJobMainMenu(waId, displayName);
+      await this.sendMainMenu(waId, displayName);
     }
     return true;
   }
@@ -458,7 +480,7 @@ export class JobAgentService {
       await this.filterMenu(waId, profile);
       return;
     }
-    if (profile.state === 'filter_menu') {
+    if (profile.state === 'filter_menu' || profile.state === 'browse_all') {
       const prompts: Record<string, string> = {
         title: 'Vəzifənin adını yazın.',
         city: 'Şəhər / rayon / ünvan yazın.',
@@ -466,6 +488,17 @@ export class JobAgentService {
         center: '📍 WhatsApp-da 📎 → Location ilə axtarış mərkəzini göndərin.',
       };
       const key = action.slice('job:filter:'.length);
+      if (key === 'city') {
+        await this.setState(profile.id, 'filter_city');
+        await this.whatsapp.sendJobList(
+          waId,
+          'Hansı şəhərdə iş axtarırsınız?',
+          ['Bakı', 'Sumqayıt', 'Gəncə', 'Abşeron', 'İsmayıllı']
+            .map((city, i) => ({ id: `job:filter:city:${i}`, title: city }))
+            .concat([{ id: 'job:filter:city:other', title: 'Başqa şəhər / ünvan' }, MENU]),
+        );
+        return;
+      }
       if (prompts[key]) {
         await this.setState(profile.id, `filter_${key}`);
         await this.prompt(waId, prompts[key]);
@@ -490,6 +523,20 @@ export class JobAgentService {
         return;
       }
     }
+    const city = /^job:filter:city:(\d|other)$/.exec(action);
+    if (city && profile.state === 'filter_city') {
+      if (city[1] === 'other') {
+        await this.prompt(waId, 'Şəhəri və ya ünvanı yazın.');
+        return;
+      }
+      const name = ['Bakı', 'Sumqayıt', 'Gəncə', 'Abşeron', 'İsmayıllı'][Number(city[1])];
+      if (name) {
+        await this.saveFilters(profile.id, { ...f, location_name: name });
+        await this.setState(profile.id, 'browse_all');
+        await this.sendJobs(waId, profile.id, 'all', 0);
+        return;
+      }
+    }
     const categoryPage = /^job:filter:categories:(\d{1,6})$/.exec(action);
     if (categoryPage && profile.state === 'filter_category') {
       await this.categoryPage(waId, profile.id, Number(categoryPage[1]));
@@ -506,10 +553,8 @@ export class JobAgentService {
       if (result.error) throw result.error;
       if (result.data) {
         await this.saveFilters(profile.id, { ...f, category_id: Number(cat[1]), title: null });
-        await this.filterMenu(waId, {
-          ...profile,
-          browse_filters: { ...f, category_id: Number(cat[1]), title: null },
-        });
+        await this.setState(profile.id, 'browse_all');
+        await this.sendJobs(waId, profile.id, 'all', 0);
         return;
       }
     }
@@ -524,7 +569,8 @@ export class JobAgentService {
     if (patch) {
       const filters = { ...f, ...patch };
       await this.saveFilters(profile.id, filters);
-      await this.filterMenu(waId, { ...profile, browse_filters: filters });
+      await this.setState(profile.id, 'browse_all');
+      await this.sendJobs(waId, profile.id, 'all', 0);
       return;
     }
     await this.prompt(waId, 'Bu seçim cari addıma aid deyil.');
@@ -566,7 +612,8 @@ export class JobAgentService {
     }
     const filters = { ...f, ...patch };
     await this.saveFilters(profile.id, filters);
-    await this.filterMenu(waId, { ...profile, browse_filters: filters });
+    await this.setState(profile.id, 'browse_all');
+    await this.sendJobs(waId, profile.id, 'all', 0);
   }
   private async prompt(waId: string, body: string): Promise<void> {
     await this.whatsapp.sendJobButtons(waId, body, [MENU]);
@@ -640,7 +687,7 @@ export class JobAgentService {
       waId,
       '✅ Vakansiya yoxlanışa göndərildi. Admin təsdiqindən sonra aktiv olacaq.',
     );
-    await this.whatsapp.sendJobMainMenu(waId);
+    await this.sendMainMenu(waId);
   }
   private activeJobs() {
     return activeVacancies(this.supabase.client);
@@ -749,7 +796,7 @@ export class JobAgentService {
         `Biznes təsdiqi: ${employer?.registration_status ?? 'draft'}`,
       ].join('\n'),
     );
-    await this.whatsapp.sendJobMainMenu(waId);
+    await this.sendMainMenu(waId);
   }
   private salary(job: Vacancy): string {
     return job.salary_min != null || job.salary_max != null
