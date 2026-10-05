@@ -34,14 +34,21 @@ export function photoMime(bytes: Buffer): string | undefined {
     return 'image/jpeg';
   return undefined;
 }
-export function businessComplete(e: any, p: any): boolean {
+export function voenEvidence(e: any): boolean {
+  return Boolean(
+    e?.voen_verified_at &&
+    e?.registry_reference &&
+    e?.legal_name &&
+    (e?.voen_verification_method === 'registry' ||
+      (e?.voen_verification_method === 'admin_manual' && e?.voen_verified_by)),
+  );
+}
+export function businessComplete(e: any, p: any, requireEvidence = true): boolean {
   return Boolean(
     BUSINESS_TYPES[e?.business_type] &&
     e?.company_name?.trim() &&
     validVoen(e?.voen) &&
-    e?.voen_verified_at &&
-    e?.registry_reference &&
-    e?.legal_name &&
+    (!requireEvidence || voenEvidence(e)) &&
     e?.photo_path &&
     e?.contact_name &&
     e?.business_description &&
@@ -122,6 +129,8 @@ export class BusinessRegistrationService {
       company_name: null,
       voen: null,
       voen_verified_at: null,
+      voen_verification_method: null,
+      voen_verified_by: null,
       registry_reference: null,
       legal_name: null,
       photo_path: null,
@@ -172,7 +181,8 @@ export class BusinessRegistrationService {
       ? 'business_type'
       : !e?.company_name?.trim()
         ? 'employer_company'
-        : !validVoen(e?.voen) || !e?.voen_verified_at || !e?.registry_reference || !e?.legal_name
+        : !validVoen(e?.voen) ||
+            (!voenEvidence(e) && e?.voen_verification_method !== 'pending_admin')
           ? 'employer_voen'
           : !e?.photo_path
             ? 'business_photo'
@@ -214,7 +224,7 @@ export class BusinessRegistrationService {
     const questions: Record<string, string> = {
       employer_company: '🏢 Biznesin / müəssisənin adını yazın.',
       employer_voen:
-        '10 rəqəmli VÖEN-i yazın. Növbəti addım üçün rəsmi bazada mövcudluğu yoxlanmalıdır.',
+        '10 rəqəmli VÖEN-i yazın. Rəsmi avtomatik yoxlama əlçatan olmadıqda admin onu ayrıca yoxlayacaq.',
       business_photo:
         '🖼️ Biznes profilinin şəklini WhatsApp-da şəkil kimi göndərin (JPEG/PNG, maksimum 5 MB).',
       business_contact_name: '👤 Əlaqədar şəxsin adını yazın.',
@@ -248,7 +258,7 @@ export class BusinessRegistrationService {
     if (action === 'job:business:submit' && p.state === 'business_confirm') {
       const e = await this.employer(p.id),
         current = await this.profile(p.id);
-      if (!businessComplete(e, current)) {
+      if (!businessComplete(e, current, false)) {
         await this.require(p.wa_id, p.id);
         return true;
       }
@@ -313,10 +323,21 @@ export class BusinessRegistrationService {
         result = { status: 'unavailable' as const };
       }
       if (!result || result.status === 'unavailable') {
+        await this.save(p.id, {
+          voen: raw,
+          voen_verified_at: null,
+          voen_verified_by: null,
+          voen_verification_method: 'pending_admin',
+          registry_reference: null,
+          legal_name: null,
+          registration_status: 'draft',
+          verified: false,
+        });
         await this.prompt(
           p.wa_id,
-          '⚠️ Rəsmi VÖEN yoxlaması hazırda əlçatan deyil. VÖEN təsdiqlənməyib; növbəti addıma keçmək mümkün deyil. Daha sonra yenidən cəhd edin.',
+          'ℹ️ Avtomatik VÖEN yoxlaması əlçatan deyil. Qeydiyyatı davam edə bilərsiniz; VÖEN admin tərəfindən rəsmi bazada yoxlanmadan vakansiya paylaşa bilməzsiniz.',
         );
+        await this.require(p.wa_id, p.id);
         return true;
       }
       if (
@@ -333,6 +354,8 @@ export class BusinessRegistrationService {
       await this.save(p.id, {
         voen: raw,
         legal_name: result.legalName.slice(0, 250),
+        voen_verification_method: 'registry',
+        voen_verified_by: null,
         registry_reference: result.reference.slice(0, 500),
         voen_verified_at: new Date().toISOString(),
         registration_status: 'draft',
@@ -434,7 +457,7 @@ export class BusinessRegistrationService {
     await this.require(p.wa_id, p.id);
   }
   private async summary(e: any, p: any): Promise<string> {
-    return `🏢 ${BUSINESS_TYPES[e.business_type] ?? '-'}: ${e.company_name}\nVÖEN: ${e.voen}\nRəsmi ad: ${e.legal_name}\n👤 ${e.contact_name}\n📝 ${e.business_description}\n📍 ${e.business_address}\n📧 ${p.contact_email}\n📱 ${p.contact_phone}`;
+    return `🏢 ${BUSINESS_TYPES[e.business_type] ?? '-'}: ${e.company_name}\nVÖEN: ${e.voen}\nRəsmi ad: ${e.legal_name ?? 'Admin yoxlamasını gözləyir'}\nVÖEN yoxlaması: ${voenEvidence(e) ? e.voen_verification_method : 'YOXLANMAYIB — admin rəsmi bazada yoxlamalıdır'}\n👤 ${e.contact_name}\n📝 ${e.business_description}\n📍 ${e.business_address}\n📧 ${p.contact_email}\n📱 ${p.contact_phone}`;
   }
   async notify(e: any, p?: any, chatId?: number): Promise<void> {
     p ??= await this.profile(e.profile_id);
@@ -473,13 +496,48 @@ export class BusinessRegistrationService {
     );
     for (const e of data ?? []) await this.notify(e, undefined, chatId);
   }
+  async verifyManually(
+    id: string,
+    token: string,
+    legalName: string,
+    adminId: number,
+  ): Promise<boolean> {
+    const e = await this.employer(id),
+      p = await this.profile(id);
+    if (
+      e?.registration_status !== 'pending' ||
+      e.registration_token !== token ||
+      e.voen_verification_method !== 'pending_admin' ||
+      !businessComplete(e, p, false) ||
+      !legalName.trim() ||
+      legalName.length > 250
+    )
+      return false;
+    const { data, error } = await this.supabase.client
+      .from('employer_profiles')
+      .update({
+        legal_name: legalName.trim(),
+        voen_verified_at: new Date().toISOString(),
+        voen_verified_by: String(adminId),
+        voen_verification_method: 'admin_manual',
+        registry_reference: 'https://new.e-taxes.gov.az/etaxes/services/taxpayer-info',
+      })
+      .eq('profile_id', id)
+      .eq('registration_status', 'pending')
+      .eq('registration_token', token)
+      .eq('voen_verification_method', 'pending_admin')
+      .select('profile_id')
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }
   async moderate(id: string, token: string, approved: boolean, adminId: number): Promise<boolean> {
     const e = await this.employer(id),
       p = await this.profile(id);
     if (
       e?.registration_status !== 'pending' ||
       e.registration_token !== token ||
-      !businessComplete(e, p)
+      !businessComplete(e, p, approved)
     )
       return false;
     const { data, error } = await this.supabase.client

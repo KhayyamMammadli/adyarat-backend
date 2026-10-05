@@ -31,27 +31,26 @@ async function pendingBusiness(f) {
   return f.tables.employer_profiles[0];
 }
 
-test('production registry provider fails closed; ten digits alone are never verification', async () => {
+test('unavailable production registry permits registration but never verifies or unlocks vacancy publishing', async () => {
   const registry = new TaxpayerRegistryService();
   assert.deepEqual(await registry.lookup('1500315641'), { status: 'unavailable' });
   const f = fixture();
   f.registry.lookup = (voen) => registry.lookup(voen);
   await voenStep(f);
   await f.text('1500315641');
-  assert.equal(f.state(), 'employer_voen');
-  assert.equal(f.tables.employer_profiles[0].voen_verified_at, undefined);
-  assert.match(last(f, 'sendJobButtons').args[1], /əlçatan deyil/);
+  assert.equal(f.state(), 'business_photo');
+  assert.equal(f.tables.employer_profiles[0].voen_verified_at, null);
+  assert.equal(f.tables.employer_profiles[0].voen_verification_method, 'pending_admin');
   await f.action('job:employer:new');
   await f.text('A vacancy');
   assert.equal(f.tables.jobs.length, 0);
 });
-test('nonexistent, mismatched, malformed registry results and timeouts cannot advance registration', async () => {
+test('nonexistent, mismatched and malformed registry results cannot advance registration', async () => {
   for (const result of [
     { status: 'not_found' },
     { status: 'found', voen: '9999999999', legalName: 'Other', reference: 'ref' },
     { status: 'found', voen: '1500315641', legalName: '', reference: 'ref' },
     { status: 'found', voen: '1500315641', legalName: 'Name', reference: '' },
-    null,
   ]) {
     const f = fixture();
     f.registry.lookup = async () => {
@@ -317,4 +316,130 @@ test('new business menus/buttons obey WhatsApp native limits', async () => {
   for (const call of f.sent)
     if (['sendJobButtons', 'sendJobList'].includes(call.name))
       await client[call.name](...call.args);
+});
+
+test('manual alternative keeps unresolved VÖEN pending until an explicit authorized admin verification', async () => {
+  const f = fixture();
+  f.registry.lookup = async () => ({ status: 'unavailable' });
+  const e = await pendingBusiness(f);
+  assert.equal(e.registration_status, 'pending');
+  assert.equal(e.voen_verified_at, null);
+  assert.equal(await f.businesses.moderate(e.profile_id, e.registration_token, true, 7), false);
+  assert.equal(f.tables.jobs.length, 0);
+  assert.equal(
+    await f.businesses.verifyManually(e.profile_id, '000000000000', 'Official business', 7),
+    false,
+  );
+  assert.equal(await f.businesses.verifyManually(e.profile_id, e.registration_token, '', 7), false);
+  assert.equal(
+    await f.businesses.verifyManually(e.profile_id, e.registration_token, 'Official business', 7),
+    true,
+  );
+  assert.equal(e.voen_verification_method, 'admin_manual');
+  assert.equal(e.voen_verified_by, '7');
+  assert.equal(e.registration_status, 'pending');
+  await f.businesses.moderate(e.profile_id, e.registration_token, true, 7);
+  assert.equal(e.registration_status, 'approved');
+  await f.action('job:employer');
+  await f.action('job:employer:new');
+  await f.text('Chef');
+  assert.equal(f.tables.jobs.length, 1);
+});
+test('unverified manual business can be rejected without inventing registry evidence', async () => {
+  const f = fixture();
+  f.registry.lookup = async () => {
+    throw Error('DVX timeout');
+  };
+  const e = await pendingBusiness(f);
+  assert.equal(await f.businesses.moderate(e.profile_id, e.registration_token, false, 7), true);
+  assert.equal(e.registration_status, 'rejected');
+  assert.equal(e.voen_verified_at, null);
+  assert.equal(e.legal_name, null);
+});
+test('Telegram manual verification collects official name and explicit confirmation; /cancel never approves', async () => {
+  const f = fixture();
+  await f.text('salam');
+  f.tables.job_agent_profiles[0].id = uuid;
+  f.registry.lookup = async () => ({ status: 'unavailable' });
+  const e = await pendingBusiness(f);
+  const messages = [];
+  const telegram = {
+    sendTo: async (...args) => {
+      messages.push(args);
+      return { message_id: messages.length };
+    },
+    clearButtons: async () => {},
+    answerCallback: async () => {},
+  };
+  const states = new TelegramAdminStateService({ client: f.client }),
+    admin = new TelegramJobAdminService(f.admin, states, telegram, f.businesses);
+  const controller = new TelegramController(
+    new ConfigService({
+      TELEGRAM_ADMIN_CHAT_ID: '7',
+      TELEGRAM_WEBHOOK_SECRET: 'test',
+      NODE_ENV: 'production',
+    }),
+    { handleCommand: async () => {} },
+    admin,
+    telegram,
+  );
+  let seq = 0;
+  const click = (data, user = 7) =>
+    controller.webhook(
+      {
+        update_id: ++seq,
+        callback_query: {
+          id: String(seq),
+          from: { id: user },
+          message: { message_id: 1, chat: { id: 7, type: 'private' } },
+          data,
+        },
+      },
+      'test',
+    );
+  const text = (body) =>
+    controller.webhook(
+      {
+        update_id: ++seq,
+        message: { message_id: seq, chat: { id: 7, type: 'private' }, from: { id: 7 }, text: body },
+      },
+      'test',
+    );
+  const session = () =>
+    f.tables.employer_profiles.find((p) => p.metadata?.telegram_admin_session)?.metadata
+      .telegram_admin_session;
+  const approval = `biz:a:${uuid}:${e.registration_token}`;
+  await click(approval, 8);
+  assert.equal(e.registration_status, 'pending');
+  assert.equal(session(), undefined);
+  await click(approval);
+  assert.equal(session().kind, 'business_verify');
+  assert.ok(messages.some((m) => m[1].includes('rəsmi bazada yoxlayın')));
+  await text('Official legal name');
+  assert.equal(session().step, 'confirm');
+  assert.equal(e.voen_verified_at, null);
+  const stale = `tg:business:${session().nonce}:verify`;
+  await text('/cancel');
+  await click(stale);
+  assert.equal(e.registration_status, 'pending');
+  await click(approval);
+  await text('Official legal name');
+  await click(`tg:business:${session().nonce}:verify`);
+  assert.equal(e.registration_status, 'approved');
+  assert.equal(e.legal_name, 'Official legal name');
+  assert.equal(e.voen_verified_by, '7');
+  assert.equal(session().kind, 'idle');
+});
+test('manual VÖEN audit fields are cleared when the business profile is edited', async () => {
+  const f = fixture();
+  f.registry.lookup = async () => ({ status: 'unavailable' });
+  const e = await pendingBusiness(f);
+  await f.businesses.verifyManually(e.profile_id, e.registration_token, 'Official', 7);
+  await f.businesses.moderate(e.profile_id, e.registration_token, true, 7);
+  await f.action('job:employer');
+  await f.action('job:employer:edit');
+  assert.equal(e.voen_verified_by, null);
+  assert.equal(e.voen_verification_method, null);
+  assert.equal(e.voen_verified_at, null);
+  assert.equal(await f.businesses.isApproved(e.profile_id), false);
 });

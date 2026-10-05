@@ -9,6 +9,10 @@ const migration = await readFile(
   ),
   'utf8',
 );
+const manualMigration = await readFile(
+  new URL('../supabase/migrations/20261005142314_manual_voen_review.sql', import.meta.url),
+  'utf8',
+);
 const id1 = '11111111-1111-4111-8111-111111111111',
   id2 = '22222222-2222-4222-8222-222222222222';
 async function database() {
@@ -30,6 +34,7 @@ test('migration preserves users, privately stores photos and enforces unique nor
   const db = await database();
   try {
     await db.exec(migration);
+    await db.exec(manualMigration);
     const q = async (sql, params) => (await db.query(sql, params)).rows;
     assert.equal((await q('select count(*)::int n from public.job_agent_profiles'))[0].n, 2);
     const legacy = (await q('select * from public.employer_profiles'))[0];
@@ -184,6 +189,46 @@ test('duplicate legacy emails abort migration without dropping data or choosing 
       ).rows[0].n,
       0,
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test('manual review migration distinguishes pending format from audited admin verification', async () => {
+  const db = await database();
+  try {
+    await db.exec(migration);
+    await db.exec(manualMigration);
+    await db.query(
+      "update public.employer_profiles set voen_verification_method='pending_admin',verified=true,registration_status='approved' where profile_id=$1",
+      [id1],
+    );
+    await assert.rejects(
+      db.query(
+        "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+        [id1],
+      ),
+      (e) => e.code === '23514',
+    );
+    await assert.rejects(
+      db.query(
+        "update public.employer_profiles set voen_verification_method='admin_manual' where profile_id=$1",
+        [id1],
+      ),
+      (e) => e.code === '23514',
+    );
+    await db.query(
+      "update public.employer_profiles set voen_verification_method='admin_manual',voen_verified_by='7',voen_verified_at=now(),legal_name='Official checked name',registry_reference='https://new.e-taxes.gov.az/etaxes/services/taxpayer-info',photo_path='private.jpg' where profile_id=$1",
+      [id1],
+    );
+    await db.query(
+      "insert into public.jobs(source,status,metadata) values('whatsapp','draft',jsonb_build_object('employer_profile_id',$1::text))",
+      [id1],
+    );
+    const e = (await db.query('select * from public.employer_profiles where profile_id=$1', [id1]))
+      .rows[0];
+    assert.equal(e.voen_verified_by, '7');
+    assert.equal(e.voen_verification_method, 'admin_manual');
   } finally {
     await db.close();
   }
