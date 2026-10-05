@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ExternalServiceError } from '../common/errors';
+import { validCoordinates } from '../job-agent/vacancy-validation';
 import { DownloadedMedia } from './whatsapp.types';
 
 interface MetaMediaMetadata {
@@ -59,6 +60,38 @@ export class WhatsAppClientService {
     }
 
     return messageId;
+  }
+
+  async sendJobLocation(
+    to: string,
+    latitude: number,
+    longitude: number,
+    name?: string,
+    address?: string,
+  ): Promise<string> {
+    if (!validCoordinates({ latitude, longitude })) throw new Error('Invalid location coordinates');
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'location',
+          location: {
+            latitude,
+            longitude,
+            ...(name ? { name: name.slice(0, 160) } : {}),
+            ...(address ? { address: address.slice(0, 250) } : {}),
+          },
+        }),
+      },
+    );
+    const id = response.messages?.[0]?.id;
+    if (!id) throw new ExternalServiceError('Meta did not return a message id', 502, response);
+    return id;
   }
 
   async sendJobList(

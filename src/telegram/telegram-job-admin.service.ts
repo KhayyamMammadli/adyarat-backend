@@ -1,3 +1,4 @@
+import { validCoordinates, validEmail } from '../job-agent/vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { JobAdminService } from '../job-agent/job-admin.service';
@@ -22,6 +23,7 @@ const STEPS = [
   'description',
   'location_name',
   'work_mode',
+  'location_pin',
   'salary',
   'contact',
   'confirm',
@@ -31,6 +33,8 @@ const QUESTIONS: Record<string, string> = {
   title: '📢 Vəzifənin adını yazın.',
   description: '📝 Vakansiyanın açıqlamasını və tələblərini yazın.',
   location_name: '📍 Şəhəri və ünvanı yazın. Remote iş üçün şirkətin şəhərini yaza bilərsiniz.',
+  location_pin:
+    '📍 Telegram-da 📎 → Location ilə iş yerinin dəqiq məkanını göndərin. Qrupda cari suala Reply edin.',
   salary:
     '💰 AZN ilə maaşı və ya aralığı yazın. Məsələn: 1500 və ya 1000–2000. Maaş açıqlanmayacaqsa aşağıdakı düymədən istifadə edin.',
   contact:
@@ -183,6 +187,17 @@ export class TelegramJobAdminService {
     if (state.session.kind === 'create') {
       const prefix = `tg:create:${state.session.nonce}:`;
       if (action === `${prefix}publish` && state.session.step === 'confirm') {
+        if (
+          ['office', 'hybrid'].includes(state.session.draft?.work_mode) &&
+          !validCoordinates(state.session.draft)
+        ) {
+          await this.promptAndSave(actor, state, {
+            ...state.session,
+            step: 'location_pin',
+            lastUpdateId: nextId,
+          });
+          return true;
+        }
         // Unique (source, source_id) makes publication idempotent even after a restart/retry.
         const job = await this.jobs.createActive(
           state.session.draft!,
@@ -198,6 +213,29 @@ export class TelegramJobAdminService {
           actor.chatId,
           `✅ #${job.id} yaradıldı və aktiv edildi. WhatsApp vakansiya siyahısında görünür.`,
           PANEL,
+        );
+        return true;
+      }
+      const location = update.message?.venue?.location ?? update.message?.location;
+      if (!action && location && state.session.step === 'location_pin') {
+        if (!this.matchesReply(actor, state.session, update) || !validCoordinates(location)) {
+          await this.telegram.sendTo(
+            actor.chatId,
+            'Cari suala Reply ilə düzgün lokasiya göndərin.',
+          );
+          return true;
+        }
+        await this.advance(
+          actor,
+          state,
+          {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            ...(update.message?.venue?.address
+              ? { location_name: update.message.venue.address.slice(0, 250) }
+              : {}),
+          },
+          nextId,
         );
         return true;
       }
@@ -221,7 +259,7 @@ export class TelegramJobAdminService {
         !action &&
         text &&
         !command?.startsWith('/') &&
-        !['work_mode', 'confirm'].includes(state.session.step!)
+        !['work_mode', 'location_pin', 'confirm'].includes(state.session.step!)
       ) {
         if (!this.matchesReply(actor, state.session, update)) {
           await this.telegram.sendTo(actor.chatId, 'Cari suala Reply ilə cavab verin.');
@@ -278,7 +316,10 @@ export class TelegramJobAdminService {
     patch: Record<string, unknown>,
     updateId: number,
   ): Promise<void> {
-    const next = STEPS[STEPS.indexOf(state.session.step!) + 1];
+    const next =
+      state.session.step === 'work_mode' && patch.work_mode === 'remote'
+        ? 'salary'
+        : STEPS[STEPS.indexOf(state.session.step!) + 1];
     await this.promptAndSave(actor, state, {
       ...state.session,
       draft: { ...state.session.draft, ...patch },
@@ -371,7 +412,7 @@ export class TelegramJobAdminService {
       if (text.length > 300) return undefined;
       const email = text.match(/[^\s]+@[^\s]+\.[^\s]+/g);
       const phone = (email ? text.replace(email[0], '') : text).trim();
-      if (email && (email.length !== 1 || email[0].length > 254)) return undefined;
+      if (email && (email.length !== 1 || !validEmail(email[0]))) return undefined;
       if (phone && (!/^\+?[\d\s()-]{7,25}$/.test(phone) || phone.replace(/\D/g, '').length < 7))
         return undefined;
       if (!phone && !email) return undefined;

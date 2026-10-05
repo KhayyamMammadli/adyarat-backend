@@ -7,6 +7,8 @@ export type TelegramMessage = {
   from?: { id?: number; is_bot?: boolean };
   chat?: { id?: number; type?: string };
   text?: string;
+  location?: { latitude: number; longitude: number };
+  venue?: { location: { latitude: number; longitude: number }; title?: string; address?: string };
   reply_to_message?: { message_id?: number };
 };
 export type TelegramUpdate = {

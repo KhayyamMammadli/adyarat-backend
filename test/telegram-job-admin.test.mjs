@@ -99,6 +99,7 @@ async function fillDraft(f, salary = '1000–2000', contact = '+994501234567 hr@
   ])
     await f.tgText(text);
   await f.click(`tg:create:${f.session().nonce}:mode:office`);
+  await f.send(f.message(undefined, { location: { latitude: 40.4, longitude: 49.8 } }));
   if (salary === null) await f.click(`tg:create:${f.session().nonce}:salary:negotiable`);
   else await f.tgText(salary);
   await f.tgText(contact);
@@ -263,6 +264,7 @@ test('invalid salary range/contact/oversized company cannot advance creation', a
   assert.equal(f.session().step, 'company_name');
   for (const text of ['Company', 'Title', 'Description', 'Bakı']) await f.tgText(text);
   await f.click(`tg:create:${f.session().nonce}:mode:hybrid`);
+  await f.send(f.message(undefined, { location: { latitude: 40.4, longitude: 49.8 } }));
   for (const text of ['2000-1000', '-100', 'abc', '1000001']) {
     await f.tgText(text);
     assert.equal(f.session().step, 'salary');
@@ -297,6 +299,7 @@ test('duplicate Telegram update cannot advance state twice or create duplicate j
   await f.tgText('Description');
   await f.tgText('Bakı');
   await f.click(`tg:create:${f.session().nonce}:mode:office`);
+  await f.send(f.message(undefined, { location: { latitude: 40.4, longitude: 49.8 } }));
   await f.tgText('1000');
   await f.tgText('+994501234567');
   const publish = f.callback(`tg:create:${f.session().nonce}:publish`);
@@ -449,4 +452,107 @@ test('Telegram transport serializes inline keyboard, callback ack and keyboard c
   } finally {
     globalThis.fetch = original;
   }
+});
+
+for (const mode of ['office', 'hybrid'])
+  test(`Telegram ${mode} waits for GPS, rejects text/invalid pin and persists location`, async () => {
+    const f = adminFixture();
+    await f.click('tg:new');
+    for (const text of ['Company', 'Title', 'Description', 'Bakı']) await f.tgText(text);
+    await f.click(`tg:create:${f.session().nonce}:mode:${mode}`);
+    assert.equal(f.session().step, 'location_pin');
+    await f.tgText('1000');
+    assert.equal(f.session().step, 'location_pin');
+    await f.send(f.message(undefined, { location: { latitude: 100, longitude: 0 } }));
+    assert.equal(f.session().step, 'location_pin');
+    f.restart();
+    await f.send(
+      f.message(undefined, {
+        venue: {
+          location: { latitude: 40.4, longitude: 49.8 },
+          address: 'Bakı, Nizami 10',
+          title: 'Office',
+        },
+      }),
+    );
+    assert.equal(f.session().step, 'salary');
+    await f.tgText('1000');
+    await f.tgText('hr@example.com');
+    assert.match(f.messages.at(-1).text, /google.com\/maps\/search/);
+    await f.click(`tg:create:${f.session().nonce}:publish`);
+    assert.equal(f.tables.jobs[0].status, 'active');
+    assert.equal(f.tables.jobs[0].latitude, 40.4);
+    assert.equal(f.tables.jobs[0].longitude, 49.8);
+    assert.equal(f.tables.jobs[0].location_name, 'Bakı, Nizami 10');
+    await f.action('job:all');
+    await f.action('job:detail:all:0:1');
+    assert.equal(last(f, 'sendJobLocation').args[1], 40.4);
+  });
+test('Telegram remote creation does not require coordinates; service rejects incomplete office creation', async () => {
+  const f = adminFixture();
+  await f.click('tg:new');
+  for (const text of ['Company', 'Title', 'Description', 'Bakı']) await f.tgText(text);
+  await f.click(`tg:create:${f.session().nonce}:mode:remote`);
+  assert.equal(f.session().step, 'salary');
+  await f.tgText('1000');
+  await f.tgText('hr@example.com');
+  await f.click(`tg:create:${f.session().nonce}:publish`);
+  assert.equal(f.tables.jobs[0].latitude, undefined);
+  assert.equal(f.tables.jobs[0].status, 'active');
+  await assert.rejects(
+    f.admin.createActive({ title: 'Invalid', work_mode: 'office' }, 'bad', 7),
+    /requires coordinates/,
+  );
+});
+test('unauthorized Telegram location cannot advance admin draft; stale location cannot contaminate WhatsApp state', async () => {
+  const f = adminFixture();
+  await f.click('tg:new');
+  for (const text of ['Company', 'Title', 'Description', 'Bakı']) await f.tgText(text);
+  await f.click(`tg:create:${f.session().nonce}:mode:office`);
+  const location = { latitude: 40.4, longitude: 49.8 };
+  await f.send(f.message(undefined, { from: { id: 88 }, location }));
+  assert.equal(f.session().step, 'location_pin');
+  await f.action('job:seeker');
+  await f.send(f.message(undefined, { location }));
+  assert.equal(f.tables.job_agent_profiles.find((p) => p.wa_id === 'wa1').state, 'seeker_category');
+  assert.equal(f.session().step, 'salary');
+});
+test('Telegram group location requires reply to current authorized actor prompt', async () => {
+  const f = adminFixture({ TELEGRAM_ADMIN_CHAT_ID: '-7', TELEGRAM_ADMIN_USER_IDS: '7' });
+  const sendText = async (text) =>
+    f.send(
+      f.message(text, {
+        chat: { id: -7, type: 'supergroup' },
+        reply_to_message: { message_id: f.session()?.promptMessageId },
+      }),
+    );
+  const click = async (data) =>
+    f.send(f.callback(data, { message: { chat: { id: -7, type: 'supergroup' } } }));
+  await click('tg:new');
+  for (const text of ['Company', 'Title', 'Description', 'Bakı']) await sendText(text);
+  await click(`tg:create:${f.session().nonce}:mode:office`);
+  const extras = {
+    chat: { id: -7, type: 'supergroup' },
+    location: { latitude: 40.4, longitude: 49.8 },
+  };
+  await f.send(f.message(undefined, extras));
+  assert.equal(f.session().step, 'location_pin');
+  await f.send(
+    f.message(undefined, {
+      ...extras,
+      reply_to_message: { message_id: f.session().promptMessageId },
+    }),
+  );
+  assert.equal(f.session().step, 'salary');
+});
+test('legacy persisted Telegram confirm without GPS returns to location step safely', async () => {
+  const f = adminFixture();
+  await fillDraft(f);
+  const session = f.tables.employer_profiles.find((p) => p.metadata?.telegram_admin_session)
+    .metadata.telegram_admin_session;
+  delete session.draft.latitude;
+  delete session.draft.longitude;
+  await f.click(`tg:create:${f.session().nonce}:publish`);
+  assert.equal(f.session().step, 'location_pin');
+  assert.equal(f.tables.jobs.length, 0);
 });

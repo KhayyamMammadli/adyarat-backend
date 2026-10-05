@@ -7,6 +7,7 @@ on:
       - feat/job-agent-interactive-menu
       - feat/telegram-admin-interactive
       - feat/vacancy-aggregator
+      - feat/employer-location-vacancy-filters
   pull_request:
 
 jobs:

@@ -28,6 +28,11 @@ export class JobAgentWebhookService {
           continue;
         }
 
+        if (message.type === 'location' && 'location' in message) {
+          await this.jobAgent.handleLocation(message.from, message.location, profileName);
+          continue;
+        }
+
         if (message.type === 'interactive' && 'interactive' in message) {
           const interactiveMessage = message as WhatsAppInteractiveMessage;
           const value =
