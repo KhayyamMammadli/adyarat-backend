@@ -1,3 +1,4 @@
+import { mapsLink } from '../job-agent/vacancy-validation';
 import { InlineKeyboard } from './telegram.types';
 
 export function moderationButtons(jobId: number): InlineKeyboard {
@@ -22,6 +23,7 @@ export function formatTelegramJob(job: Record<string, any>): string {
       : String(job.title ?? '').slice(0, 120),
     `🏢 ${String(job.company_name ?? '-').slice(0, 160)}`,
     `📍 ${String(job.location_name ?? '-').slice(0, 250)}`,
+    ...(mapsLink(job) ? [`🗺️ Xəritədə bax: ${mapsLink(job)}`] : []),
     `💼 ${job.work_mode ?? '-'}`,
     `💰 ${salary}`,
     `📝 ${String(job.description ?? '-').slice(0, 1500)}`,

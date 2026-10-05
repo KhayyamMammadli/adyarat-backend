@@ -1,8 +1,16 @@
 import {
+  validVoen,
+  validEmail,
+  validPhone,
+  validCoordinates,
+  mapsLink,
+} from './vacancy-validation';
+import {
   activeVacancies,
   matchingVacancies,
   completePreference,
   filterLike,
+  filteredVacancies,
 } from './vacancy-query';
 import { moderationButtons, formatTelegramJob } from '../telegram/job-message';
 import { Injectable } from '@nestjs/common';
@@ -20,12 +28,21 @@ const MODES: Record<string, string> = {
   hibrid: 'hybrid',
 };
 const MENU = { id: 'job:menu', title: 'Əsas menyu' };
-type Profile = { id: string; wa_id: string; display_name?: string; role?: string; state: string };
+type Profile = {
+  id: string;
+  wa_id: string;
+  display_name?: string;
+  role?: string;
+  state: string;
+  browse_filters?: Record<string, any>;
+};
 type Vacancy = {
   id: number;
   title: string;
   company_name?: string;
   location_name?: string;
+  latitude?: number;
+  longitude?: number;
   work_mode?: string;
   salary_min?: number;
   salary_max?: number;
@@ -48,6 +65,7 @@ export class JobAgentService {
 
   async welcome(waId: string, displayName?: string): Promise<void> {
     const profile = await this.upsertProfile(waId, displayName);
+    await this.resetBrowse(profile.id);
     await this.setState(profile.id, 'ready');
     await this.whatsapp.sendJobMainMenu(waId, displayName);
   }
@@ -60,8 +78,13 @@ export class JobAgentService {
     }
     // Only explicit interactive role IDs may interrupt a partially completed flow.
     if (action === 'job:seeker') {
+      await this.resetBrowse(profile.id);
       await this.savePreference(profile.id, {
         desired_title: null,
+        category_id: null,
+        latitude: null,
+        longitude: null,
+        radius_km: null,
         location_name: null,
         salary_min: null,
         work_modes: [],
@@ -74,12 +97,18 @@ export class JobAgentService {
       return;
     }
     if (action === 'job:employer') {
+      await this.resetBrowse(profile.id);
       const employer = await this.employer(profile.id);
       await this.write(
         this.supabase.client.from('employer_profiles').upsert(
           {
             profile_id: profile.id,
-            metadata: { ...(employer?.metadata ?? {}), draft_job_id: null },
+            metadata: {
+              ...(employer?.metadata ?? {}),
+              draft_job_id: null,
+              onboarding_return: null,
+              location_return: null,
+            },
             updated_at: this.now(),
           },
           { onConflict: 'profile_id' },
@@ -96,8 +125,30 @@ export class JobAgentService {
       return;
     }
     if (action === 'job:profile') {
+      await this.resetBrowse(profile.id);
       await this.setState(profile.id, 'ready');
       await this.sendProfile(waId, profile);
+      return;
+    }
+    if (action === 'job:contact:add' && profile.state === 'employer_contact_choice') {
+      await this.setState(profile.id, 'employer_contact');
+      await this.prompt(waId, '📱 Public əlaqə nömrəsini yazın.');
+      return;
+    }
+    if (
+      action === 'job:contact:skip' &&
+      ['employer_contact_choice', 'employer_contact'].includes(profile.state)
+    ) {
+      await this.updateDraft(profile.id, { contact_phone: null });
+      await this.setState(profile.id, 'employer_confirm');
+      await this.sendConfirmation(waId, await this.draft(profile.id));
+      return;
+    }
+    if (
+      action.startsWith('job:filter:') &&
+      (profile.state === 'browse_all' || profile.state.startsWith('filter_'))
+    ) {
+      await this.handleFilter(waId, profile, action);
       return;
     }
     const page = /^job:page:(all|matches):(\d{1,6})$/.exec(action);
@@ -109,7 +160,22 @@ export class JobAgentService {
     if (detail && profile.state === `browse_${detail[1]}`) {
       const { data, error } = await this.activeJobs().eq('id', Number(detail[3])).maybeSingle();
       if (error) throw error;
-      if (data) await this.whatsapp.sendText(waId, this.formatJob(data));
+      if (data) {
+        await this.whatsapp.sendText(waId, this.formatJob(data));
+        if (['office', 'hybrid'].includes(data.work_mode) && validCoordinates(data)) {
+          try {
+            await this.whatsapp.sendJobLocation(
+              waId,
+              data.latitude,
+              data.longitude,
+              data.company_name,
+              data.location_name,
+            );
+          } catch {
+            // The text above already contains a complete clickable Maps fallback.
+          }
+        }
+      }
       await this.whatsapp.sendJobButtons(
         waId,
         data
@@ -192,10 +258,27 @@ export class JobAgentService {
             { onConflict: 'profile_id' },
           ),
       );
-      await this.setState(profile.id, 'employer_job_title');
-      await this.prompt(waId, '📢 Vakansiyanın adını yazın. Məsələn: Satış meneceri');
+      await this.requireEmployer(waId, profile.id);
+    } else if (profile.state === 'employer_voen') {
+      if (!validVoen(raw)) {
+        await this.prompt(waId, 'VÖEN 10 rəqəmdən ibarət olmalıdır.');
+        return true;
+      }
+      await this.saveEmployer(profile.id, { voen: raw });
+      await this.requireEmployer(waId, profile.id);
+    } else if (profile.state === 'employer_email') {
+      if (!validEmail(raw)) {
+        await this.prompt(waId, 'Düzgün email yazın. Məsələn: hr@example.com');
+        return true;
+      }
+      await this.saveEmployer(profile.id, { email: raw.toLowerCase() });
+      await this.requireEmployer(waId, profile.id);
     } else if (profile.state === 'employer_job_title') {
       const employer = await this.employer(profile.id);
+      if (!validVoen(employer?.voen) || !validEmail(employer?.email)) {
+        await this.requireEmployer(waId, profile.id);
+        return true;
+      }
       const { data, error } = await this.supabase.client
         .from('jobs')
         .insert({
@@ -203,6 +286,7 @@ export class JobAgentService {
           title: raw,
           company_name: employer?.company_name,
           status: 'draft',
+          contact_email: employer.email,
           metadata: { employer_profile_id: profile.id },
         })
         .select('*')
@@ -246,16 +330,27 @@ export class JobAgentService {
       );
     } else if (profile.state === 'employer_description') {
       await this.updateDraft(profile.id, { description: raw });
-      await this.setState(profile.id, 'employer_contact');
-      await this.prompt(waId, '☎️ Namizədlər üçün əlaqə nömrəsini yazın.');
+      await this.setState(profile.id, 'employer_contact_choice');
+      await this.whatsapp.sendJobButtons(waId, 'Public əlaqə nömrəsi əlavə etmək istəyirsiniz?', [
+        { id: 'job:contact:add', title: '📱 Nömrə əlavə et' },
+        { id: 'job:contact:skip', title: '⏭️ Keç' },
+        MENU,
+      ]);
     } else if (profile.state === 'employer_contact') {
-      if (!/^\+?[\d\s()-]{7,25}$/.test(raw) || raw.replace(/\D/g, '').length < 7) {
+      if (!validPhone(raw)) {
         await this.prompt(waId, 'Düzgün əlaqə nömrəsi yazın. Məsələn: +994501234567');
         return true;
       }
       await this.updateDraft(profile.id, { contact_phone: raw });
       await this.setState(profile.id, 'employer_confirm');
       await this.sendConfirmation(waId, await this.draft(profile.id));
+    } else if (profile.state.startsWith('filter_')) {
+      await this.filterText(waId, profile, raw);
+    } else if (profile.state === 'employer_pin') {
+      await this.prompt(
+        waId,
+        '📍 WhatsApp-da 📎 → Location ilə iş yerinin dəqiq məkanını göndərin.',
+      );
     } else if (profile.state === 'employer_confirm') {
       await this.sendConfirmation(waId, await this.draft(profile.id));
     } else {
@@ -265,6 +360,233 @@ export class JobAgentService {
     return true;
   }
 
+  async handleLocation(waId: string, location: any, displayName?: string): Promise<void> {
+    const profile = await this.upsertProfile(waId, displayName);
+    if (!validCoordinates(location)) {
+      await this.prompt(waId, 'Düzgün xəritə lokasiyası göndərin.');
+      return;
+    }
+    const coordinates = { latitude: location.latitude, longitude: location.longitude };
+    if (profile.state === 'employer_pin') {
+      const job = await this.draft(profile.id);
+      await this.updateDraft(profile.id, {
+        ...coordinates,
+        location_name: String(location.address || location.name || job.location_name || '').slice(
+          0,
+          250,
+        ),
+      });
+      const employer = await this.employer(profile.id);
+      if (employer?.metadata?.location_return === 'employer_confirm') {
+        await this.saveEmployer(profile.id, {
+          metadata: { ...employer.metadata, location_return: null },
+        });
+        await this.setState(profile.id, 'employer_confirm');
+        await this.sendConfirmation(waId, await this.draft(profile.id));
+        return;
+      }
+      await this.setState(profile.id, 'employer_salary_min');
+      await this.prompt(waId, '💰 Minimum maaşı AZN ilə yazın.');
+    } else if (profile.state === 'filter_center') {
+      await this.saveFilters(profile.id, { ...(profile.browse_filters ?? {}), ...coordinates });
+      await this.setState(profile.id, 'filter_radius');
+      await this.whatsapp.sendJobList(
+        waId,
+        'Məsafəni seçin.',
+        [5, 10, 25, 50, 100]
+          .map((n) => ({ id: `job:filter:radius:${n}`, title: `${n} km` }))
+          .concat([MENU]),
+      );
+    } else await this.prompt(waId, 'Lokasiya cari addımda tələb olunmur. Cari suala cavab verin.');
+  }
+  private async saveEmployer(id: string, patch: Record<string, unknown>): Promise<void> {
+    await this.write(
+      this.supabase.client
+        .from('employer_profiles')
+        .upsert({ profile_id: id, ...patch, updated_at: this.now() }, { onConflict: 'profile_id' }),
+    );
+  }
+  private async requireEmployer(waId: string, id: string, resume?: string): Promise<void> {
+    const employer = await this.employer(id);
+    if (resume)
+      await this.saveEmployer(id, {
+        metadata: { ...(employer?.metadata ?? {}), onboarding_return: resume },
+      });
+    const target = resume ?? employer?.metadata?.onboarding_return ?? 'employer_job_title';
+    const state = !validVoen(employer?.voen)
+      ? 'employer_voen'
+      : !validEmail(employer?.email)
+        ? 'employer_email'
+        : target;
+    await this.setState(id, state);
+    if (state === 'employer_confirm') {
+      await this.saveEmployer(id, {
+        metadata: { ...(employer?.metadata ?? {}), onboarding_return: null },
+      });
+      await this.sendConfirmation(waId, await this.draft(id));
+      return;
+    }
+    await this.prompt(
+      waId,
+      state === 'employer_voen'
+        ? '🏢 10 rəqəmli VÖEN-i yazın.'
+        : state === 'employer_email'
+          ? '📧 İşəgötürən email ünvanını yazın (namizədlərə göstəriləcək).'
+          : '📢 Vakansiyanın adını yazın.',
+    );
+  }
+  private async saveFilters(id: string, filters: Record<string, unknown>): Promise<void> {
+    await this.write(
+      this.supabase.client
+        .from('job_agent_profiles')
+        .update({ browse_filters: filters })
+        .eq('id', id),
+    );
+  }
+  private async resetBrowse(id: string): Promise<void> {
+    await this.saveFilters(id, {});
+  }
+  private async filterMenu(waId: string, profile: Profile): Promise<void> {
+    await this.setState(profile.id, 'filter_menu');
+    const f = profile.browse_filters ?? {};
+    await this.whatsapp.sendJobList(
+      waId,
+      `🔍 Filterlər: ${f.title || '-'} • ${f.location_name || '-'} • ${f.salary_min ?? '-'} AZN • ${f.work_mode || '-'} • ${f.radius_km ? `${f.radius_km} km` : '-'}`,
+      [
+        { id: 'job:filter:title', title: 'Vəzifə' },
+        { id: 'job:filter:category', title: 'Kateqoriya' },
+        { id: 'job:filter:city', title: 'Şəhər / lokasiya' },
+        { id: 'job:filter:salary', title: 'Minimum maaş' },
+        { id: 'job:filter:mode', title: 'İş rejimi' },
+        { id: 'job:filter:center', title: '📍 Məsafə / radius' },
+        { id: 'job:filter:apply', title: '🔍 Filterlə' },
+        { id: 'job:filter:clear', title: '🧹 Filterləri təmizlə' },
+        MENU,
+      ],
+    );
+  }
+  private async handleFilter(waId: string, profile: Profile, action: string): Promise<void> {
+    const f = profile.browse_filters ?? {};
+    if (action === 'job:filter:clear' || action === 'job:filter:apply') {
+      if (action.endsWith(':clear')) await this.resetBrowse(profile.id);
+      await this.setState(profile.id, 'browse_all');
+      await this.sendJobs(waId, profile.id, 'all', 0);
+      return;
+    }
+    if (action === 'job:filter:menu') {
+      await this.filterMenu(waId, profile);
+      return;
+    }
+    if (profile.state === 'filter_menu') {
+      const prompts: Record<string, string> = {
+        title: 'Vəzifənin adını yazın.',
+        city: 'Şəhər / rayon / ünvan yazın.',
+        salary: 'Minimum maaşı AZN ilə yazın.',
+        center: '📍 WhatsApp-da 📎 → Location ilə axtarış mərkəzini göndərin.',
+      };
+      const key = action.slice('job:filter:'.length);
+      if (prompts[key]) {
+        await this.setState(profile.id, `filter_${key}`);
+        await this.prompt(waId, prompts[key]);
+        return;
+      }
+      if (key === 'mode') {
+        await this.setState(profile.id, 'filter_mode');
+        await this.whatsapp.sendJobList(
+          waId,
+          'İş rejimini seçin.',
+          ['office', 'remote', 'hybrid']
+            .map((mode, i) => ({
+              id: `job:filter:mode:${mode}`,
+              title: ['🏢 Ofis', '🏠 Remote', '🔄 Hibrid'][i],
+            }))
+            .concat([MENU]),
+        );
+        return;
+      }
+      if (key === 'category') {
+        await this.categoryPage(waId, profile.id, 0);
+        return;
+      }
+    }
+    const categoryPage = /^job:filter:categories:(\d{1,6})$/.exec(action);
+    if (categoryPage && profile.state === 'filter_category') {
+      await this.categoryPage(waId, profile.id, Number(categoryPage[1]));
+      return;
+    }
+    const cat = /^job:filter:category:(\d+)$/.exec(action);
+    if (cat && profile.state === 'filter_category') {
+      const result = await this.supabase.client
+        .from('job_categories')
+        .select('id')
+        .eq('id', Number(cat[1]))
+        .eq('is_active', true)
+        .maybeSingle();
+      if (result.error) throw result.error;
+      if (result.data) {
+        await this.saveFilters(profile.id, { ...f, category_id: Number(cat[1]), title: null });
+        await this.filterMenu(waId, {
+          ...profile,
+          browse_filters: { ...f, category_id: Number(cat[1]), title: null },
+        });
+        return;
+      }
+    }
+    const mode = /^job:filter:mode:(office|remote|hybrid)$/.exec(action);
+    const radius = /^job:filter:radius:(5|10|25|50|100)$/.exec(action);
+    const patch =
+      mode && profile.state === 'filter_mode'
+        ? { work_mode: mode[1] }
+        : radius && profile.state === 'filter_radius' && validCoordinates(f)
+          ? { radius_km: Number(radius[1]) }
+          : undefined;
+    if (patch) {
+      const filters = { ...f, ...patch };
+      await this.saveFilters(profile.id, filters);
+      await this.filterMenu(waId, { ...profile, browse_filters: filters });
+      return;
+    }
+    await this.prompt(waId, 'Bu seçim cari addıma aid deyil.');
+  }
+  private async categoryPage(waId: string, id: string, page: number): Promise<void> {
+    const { data, error } = await this.supabase.client
+      .from('job_categories')
+      .select('id,name')
+      .eq('is_active', true)
+      .order('id')
+      .range(page * 6, page * 6 + 6);
+    if (error) throw error;
+    await this.setState(id, 'filter_category');
+    const rows = (data ?? [])
+      .slice(0, 6)
+      .map((c) => ({ id: `job:filter:category:${c.id}`, title: String(c.name).slice(0, 24) }));
+    if (page) rows.push({ id: `job:filter:categories:${page - 1}`, title: '⬅️ Geri' });
+    if ((data?.length ?? 0) > 6)
+      rows.push({ id: `job:filter:categories:${page + 1}`, title: 'Növbəti ➡️' });
+    rows.push({ id: 'job:filter:menu', title: 'Filterlərə qayıt' }, MENU);
+    await this.whatsapp.sendJobList(waId, 'Kateqoriyanı seçin.', rows);
+  }
+  private async filterText(waId: string, profile: Profile, raw: string): Promise<void> {
+    const f = profile.browse_filters ?? {};
+    const patch =
+      profile.state === 'filter_title' && raw.length <= 120
+        ? { title: raw, category_id: null }
+        : profile.state === 'filter_city' && raw.length <= 250
+          ? { location_name: raw }
+          : profile.state === 'filter_salary' && this.number(raw) !== undefined
+            ? { salary_min: this.number(raw) }
+            : undefined;
+    if (!patch) {
+      await this.prompt(
+        waId,
+        'Cari addım üçün düzgün məlumat daxil edin və ya düymədən seçim edin.',
+      );
+      return;
+    }
+    const filters = { ...f, ...patch };
+    await this.saveFilters(profile.id, filters);
+    await this.filterMenu(waId, { ...profile, browse_filters: filters });
+  }
   private async prompt(waId: string, body: string): Promise<void> {
     await this.whatsapp.sendJobButtons(waId, body, [MENU]);
   }
@@ -284,6 +606,14 @@ export class JobAgentService {
     const seeker = profile.state === 'seeker_work_mode';
     if (seeker) await this.savePreference(profile.id, { work_modes: [mode] });
     else await this.updateDraft(profile.id, { work_mode: mode });
+    if (!seeker && mode !== 'remote') {
+      await this.setState(profile.id, 'employer_pin');
+      await this.prompt(
+        waId,
+        '📍 WhatsApp-da 📎 → Location ilə iş yerinin dəqiq məkanını göndərin.',
+      );
+      return;
+    }
     await this.setState(profile.id, seeker ? 'seeker_salary' : 'employer_salary_min');
     await this.prompt(
       waId,
@@ -303,6 +633,19 @@ export class JobAgentService {
     );
   }
   private async submit(waId: string, profileId: string, job: Vacancy): Promise<void> {
+    const employer = await this.employer(profileId);
+    if (!validVoen(employer?.voen) || !validEmail(employer?.email)) {
+      await this.requireEmployer(waId, profileId, 'employer_confirm');
+      return;
+    }
+    if (['office', 'hybrid'].includes(job.work_mode ?? '') && !validCoordinates(job)) {
+      await this.saveEmployer(profileId, {
+        metadata: { ...(employer?.metadata ?? {}), location_return: 'employer_confirm' },
+      });
+      await this.setState(profileId, 'employer_pin');
+      await this.prompt(waId, '📍 İş yerinin dəqiq lokasiyasını göndərin.');
+      return;
+    }
     await this.updateDraft(profileId, { status: 'pending' });
     await this.setState(profileId, 'ready');
     await this.telegram.sendMessage(
@@ -324,7 +667,13 @@ export class JobAgentService {
     mode: 'all' | 'matches',
     page: number,
   ): Promise<void> {
-    let query = this.activeJobs();
+    const profile = await this.supabase.client
+      .from('job_agent_profiles')
+      .select('*')
+      .eq('id', profileId)
+      .single();
+    if (profile.error) throw profile.error;
+    let query = filteredVacancies(this.supabase.client, profile.data.browse_filters);
     if (mode === 'matches') {
       const pref = await this.preference(profileId);
       if (!completePreference(pref)) {
@@ -364,6 +713,18 @@ export class JobAgentService {
         title: 'Növbəti ➡️',
         description: 'Növbəti səhifə',
       });
+    if (mode === 'all') {
+      rows.push({
+        id: 'job:filter:menu',
+        title: '🔍 Filterlə',
+        description: 'Axtarış kriteriyaları',
+      });
+      rows.push({
+        id: 'job:filter:clear',
+        title: '🧹 Filterləri təmizlə',
+        description: 'Bütün aktiv elanları göstər',
+      });
+    }
     rows.push({ ...MENU, description: 'Əsas menyuya qayıt' });
     // WhatsApp list rows are hidden behind its picker. Show the current page in chat too.
     if (jobs.length) {
@@ -373,7 +734,7 @@ export class JobAgentService {
           .slice(0, PAGE_SIZE)
           .map(
             (job) =>
-              `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)} • ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}`,
+              `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 Ünvan: ${(job.location_name ?? '-').slice(0, 250)} • ${job.work_mode ?? '-'}${mapsLink(job) ? `\n🗺️ Xəritədə bax: ${mapsLink(job)}` : ''}\n💰 ${this.salary(job)}`,
           )
           .join('\n\n'),
       );
@@ -399,6 +760,8 @@ export class JobAgentService {
         `İş rejimi: ${pref?.work_modes?.join(', ') || 'Daxil edilməyib'}`,
         `Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`,
         `Şirkət: ${employer?.company_name ?? 'Daxil edilməyib'}`,
+        `VÖEN: ${employer?.voen ?? 'Daxil edilməyib'}`,
+        `Email: ${employer?.email ?? 'Daxil edilməyib'}`,
       ].join('\n'),
     );
     await this.whatsapp.sendJobMainMenu(waId);
@@ -409,7 +772,7 @@ export class JobAgentService {
       : 'Maaş göstərilməyib';
   }
   private formatJob(job: Vacancy): string {
-    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 ${(job.location_name ?? '-').slice(0, 250)}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}${job.source_url ? `\n🔗 Mənbə: ${(job.source ?? '').slice(0, 40)}\n${job.source_url.slice(0, 1000)}` : ''}${job.metadata?.requirements ? `\nTələblər: ${String(job.metadata.requirements).slice(0, 400)}` : ''}`;
+    return `#${job.id} — ${job.title.slice(0, 120)}\n🏢 ${(job.company_name ?? 'Şirkət').slice(0, 160)}\n📍 Ünvan: ${(job.location_name ?? '-').slice(0, 250)}${mapsLink(job) ? `\n🗺️ Xəritədə bax: ${mapsLink(job)}` : ''}\n💼 ${job.work_mode ?? '-'}\n💰 ${this.salary(job)}\n📝 ${(job.description ?? '-').slice(0, job.source_url ? 1200 : 1500)}\n☎️ ${(job.contact_phone ?? '-').slice(0, 25)}${job.contact_email ? `\n📧 ${job.contact_email.slice(0, 254)}` : ''}${job.source_url ? `\n🔗 Mənbə: ${(job.source ?? '').slice(0, 40)}\n${job.source_url.slice(0, 1000)}` : ''}${job.metadata?.requirements ? `\nTələblər: ${String(job.metadata.requirements).slice(0, 250)}` : ''}`;
   }
   private filterLike(value: string): string {
     // Quoted PostgREST values keep commas/parentheses in user input out of its grammar.

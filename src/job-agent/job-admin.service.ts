@@ -1,3 +1,4 @@
+import { validCoordinates } from './vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
@@ -14,7 +15,7 @@ export class JobAdminService {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select(
-        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at,source,source_url',
+        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at,source,source_url,latitude,longitude',
       )
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
@@ -71,6 +72,8 @@ export class JobAdminService {
     sourceId: string,
     userId: number,
   ): Promise<any> {
+    if (['office', 'hybrid'].includes(String(draft.work_mode)) && !validCoordinates(draft))
+      throw new Error('Office/Hybrid vacancy requires coordinates');
     const row = {
       ...draft,
       source: 'telegram_admin',

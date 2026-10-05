@@ -40,6 +40,8 @@ test('role actions interrupt active state and reset incomplete data/draft pointe
   await seeker(f);
   await f.action('job:employer');
   await f.text('Company');
+  await f.text('1500315641');
+  await f.text('hr@example.com');
   await f.text('Title');
   const draft = f.tables.jobs[0];
   await f.action('job:seeker');
@@ -69,6 +71,8 @@ test('numeric answers are current-step data, never global role shortcuts', async
   await f.action('job:employer');
   await f.text('1');
   assert.equal(f.tables.employer_profiles[0].company_name, '1');
+  await f.text('1500315641');
+  await f.text('hr@example.com');
   await f.text('2');
   assert.equal(f.tables.jobs[0].title, '2');
   await f.text('3');
@@ -99,11 +103,15 @@ test('employer flow keeps company, preview and contact in draft until explicit c
 test('maximum salary and contact validation preserve current state', async () => {
   const f = fixture();
   await f.action('job:employer');
-  for (const text of ['Company', 'Title', 'Bakı', '3', '1000']) await f.text(text);
+  for (const text of ['Company', '1500315641', 'hr@example.com', 'Title', 'Bakı', '3'])
+    await f.text(text);
+  await f.service.handleLocation('wa1', { latitude: 40.4, longitude: 49.8 });
+  await f.text('1000');
   await f.text('900');
   assert.equal(f.state(), 'employer_salary_max');
   await f.text('1500');
   await f.text('Description');
+  await f.action('job:contact:add');
   await f.text('x');
   assert.equal(f.state(), 'employer_contact');
 });
@@ -118,6 +126,8 @@ test('draft updates enforce ownership and draft status', async () => {
   const f = fixture();
   await f.action('job:employer');
   await f.text('Company');
+  await f.text('1500315641');
+  await f.text('hr@example.com');
   await f.text('Title');
   f.tables.jobs[0].metadata.employer_profile_id = 'other';
   await assert.rejects(f.text('Bakı'), /Expected one row/);
@@ -183,7 +193,7 @@ test('incomplete profile and empty/out-of-range pages show navigable controls', 
   await f.action('job:all');
   assert.deepEqual(
     last(f, 'sendJobList').args[2].map((r) => r.id),
-    ['job:menu'],
+    ['job:filter:menu', 'job:filter:clear', 'job:menu'],
   );
   await f.action('job:page:all:9');
   assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:page:all:8'));
@@ -260,7 +270,7 @@ test('webhook separates text, interactive IDs and unsupported media', async () =
       { id: '3', from: 'wa1', type: 'image', image: { id: 'img' } },
     ]),
   );
-  assert.equal(f.state(), 'employer_job_title');
+  assert.equal(f.state(), 'employer_voen');
   assert.equal(f.tables.employer_profiles[0].company_name, 'Yelo');
   assert.equal(f.tables.jobs.length, 0);
   assert.equal(last(f, 'sendJobMainMenu').args[0], 'wa1');

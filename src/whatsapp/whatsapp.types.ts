@@ -70,6 +70,15 @@ export interface WhatsAppInteractiveMessage {
   };
 }
 
+export interface WhatsAppLocationMessage {
+  from: string;
+  from_user_id?: string;
+  id: string;
+  timestamp: string;
+  type: 'location';
+  location: { latitude: number; longitude: number; name?: string; address?: string };
+}
+
 export interface WhatsAppUnknownMessage {
   from: string;
   from_user_id?: string;
@@ -80,6 +89,7 @@ export interface WhatsAppUnknownMessage {
 }
 
 export type WhatsAppMessage =
+  | WhatsAppLocationMessage
   | WhatsAppTextMessage
   | WhatsAppImageMessage
   | WhatsAppAudioMessage

@@ -1,4 +1,5 @@
 import { JobAgentService } from '../../dist/job-agent/job-agent.service.js';
+import { distanceKm } from '../../dist/job-agent/vacancy-validation.js';
 import { JobAdminService } from '../../dist/job-agent/job-admin.service.js';
 
 // Stateful query fixture: preserves partial upserts like PostgREST and evaluates
@@ -17,10 +18,23 @@ export function fixture() {
   const notices = [];
   let failure;
   const client = {
+    rpc(name, args) {
+      if (name !== 'jobs_within_radius') throw new Error('Unexpected RPC');
+      return client.from('jobs').radius(args);
+    },
     from(table) {
       const spec = { table, op: 'read', filters: [], orders: [], ors: [] };
       calls.push(spec);
       const q = {
+        radius(args) {
+          spec.filters.push(
+            (row) =>
+              (args.include_remote && row.work_mode === 'remote') ||
+              distanceKm({ latitude: args.center_lat, longitude: args.center_lon }, row) <=
+                args.max_km,
+          );
+          return q;
+        },
         select() {
           return q;
         },
@@ -79,13 +93,16 @@ export function fixture() {
                 row.category_id === category ||
                 String(row.title).toLowerCase().includes(title.toLowerCase()),
             );
-          } else if (value.startsWith('work_mode.eq.remote')) {
+          } else if (
+            value.startsWith('work_mode.eq.remote') ||
+            value.startsWith('location_name.ilike.')
+          ) {
             const cities = [...value.matchAll(/location_name.ilike.("(?:[^"\\]|\\.)*")/g)].map(
               (m) => JSON.parse(m[1]).slice(1, -1).toLowerCase(),
             );
             spec.filters.push(
               (row) =>
-                row.work_mode === 'remote' ||
+                (value.startsWith('work_mode.eq.remote') && row.work_mode === 'remote') ||
                 cities.some((city) =>
                   String(row.location_name ?? '')
                     .toLowerCase()
@@ -190,7 +207,14 @@ export function fixture() {
     },
   };
   const whatsapp = Object.fromEntries(
-    ['sendText', 'sendJobButtons', 'sendJobList', 'sendJobMainMenu', 'markAsRead'].map((name) => [
+    [
+      'sendJobLocation',
+      'sendText',
+      'sendJobButtons',
+      'sendJobList',
+      'sendJobMainMenu',
+      'markAsRead',
+    ].map((name) => [
       name,
       async (...args) => {
         sent.push({ name, args });
@@ -228,15 +252,17 @@ export async function employerDraft(f) {
   await f.action('job:employer');
   for (const text of [
     'Yelo',
+    '1500315641',
+    'hr@example.com',
     'Frontend developer',
     'Bakı, Nizami 1',
     '1',
-    '1000',
-    '2000',
-    'React təcrübəsi',
-    '+994501234567',
   ])
     await f.text(text);
+  await f.service.handleLocation('wa1', { latitude: 40.4093, longitude: 49.8671 });
+  for (const text of ['1000', '2000', 'React təcrübəsi']) await f.text(text);
+  await f.action('job:contact:add');
+  await f.text('+994501234567');
   return f.tables.jobs[0];
 }
 export async function seeker(f) {
