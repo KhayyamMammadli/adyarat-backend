@@ -298,3 +298,123 @@ test('interactive client serializes job menu/buttons within Meta limits and pres
     /limits/,
   );
 });
+
+test('production-shaped approved job appears in all with visible chat preview despite incomplete seeker', async () => {
+  const f = fixture();
+  f.tables.jobs.push({
+    id: 2,
+    title: 'Frontend developer',
+    company_name: 'Software MMC',
+    location_name: 'Baki',
+    work_mode: 'office',
+    salary_min: '2000',
+    salary_max: '3500',
+    salary_currency: 'AZN',
+    status: 'active',
+    published_at: '2026-10-05T10:48:12.993Z',
+    expires_at: null,
+    created_at: '2026-10-05T10:45:00Z',
+  });
+  await f.action('job:all');
+  assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:detail:all:0:2'));
+  assert.match(last(f, 'sendText').args[1], /#2 — Frontend developer/);
+  await f.action('job:matches');
+  assert.match(last(f, 'sendJobButtons').args[1], /profilinizi tamamlayın/);
+  await seeker(f);
+  await f.action('job:matches');
+  assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:detail:matches:0:2'));
+});
+test('category-only profile matches active vacancies and category/title alternatives preserve salary/expiry', async () => {
+  const f = fixture();
+  await seeker(f);
+  seedJobs(f, 4);
+  const pref = f.tables.job_seeker_preferences[0];
+  pref.category_id = 7;
+  pref.desired_title = null;
+  f.tables.jobs[0].category_id = 7;
+  f.tables.jobs[0].title = 'React engineer';
+  f.tables.jobs[1].category_id = 7;
+  f.tables.jobs[1].status = 'pending';
+  f.tables.jobs[2].category_id = 7;
+  f.tables.jobs[2].expires_at = '2020-01-01T00:00:00Z';
+  await f.action('job:matches');
+  assert.deepEqual(
+    last(f, 'sendJobList')
+      .args[2].filter((r) => r.id.startsWith('job:detail'))
+      .map((r) => r.id),
+    ['job:detail:matches:0:1'],
+  );
+  pref.desired_title = 'Frontend';
+  await f.action('job:matches');
+  assert.equal(
+    last(f, 'sendJobList').args[2].filter((r) => r.id.startsWith('job:detail')).length,
+    2,
+  );
+});
+test('mixed work modes apply city exception only to remote jobs and exclude foreign currency', async () => {
+  const f = fixture();
+  await seeker(f);
+  seedJobs(f, 4);
+  f.tables.job_seeker_preferences[0].work_modes = ['office', 'remote'];
+  f.tables.jobs[0].location_name = 'Gəncə';
+  f.tables.jobs[1].location_name = 'Gəncə';
+  f.tables.jobs[1].work_mode = 'remote';
+  f.tables.jobs[2].salary_currency = 'USD';
+  f.tables.jobs[3].location_name = 'Baku';
+  await f.action('job:matches');
+  assert.deepEqual(
+    last(f, 'sendJobList')
+      .args[2].filter((r) => r.id.startsWith('job:detail'))
+      .map((r) => r.id),
+    ['job:detail:matches:0:4', 'job:detail:matches:0:2'],
+  );
+});
+test('approved Asim fixture is included on matching pages and next/back retain chat previews', async () => {
+  const f = fixture();
+  await seeker(f);
+  seedJobs(f, 12);
+  f.tables.jobs[11].company_name = 'Asim Hesenov';
+  await f.action('job:matches');
+  assert.match(last(f, 'sendText').args[1], /Asim Hesenov/);
+  assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:page:matches:1'));
+  const first = last(f, 'sendJobList').args[2];
+  await f.action('job:page:matches:1');
+  assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:page:matches:0'));
+  await f.action('job:page:matches:0');
+  assert.deepEqual(last(f, 'sendJobList').args[2], first);
+});
+
+test('real Supabase SDK serializes independent expiry, category, location and salary OR groups safely', async () => {
+  const { createClient } = await import('@supabase/supabase-js');
+  const f = fixture();
+  await seeker(f);
+  const pref = f.tables.job_seeker_preferences[0];
+  pref.category_id = 7;
+  pref.desired_title = 'React, (Next)';
+  let url;
+  const client = createClient('https://fixture.invalid', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        url = new URL(String(input));
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      },
+    },
+  });
+  const query = client
+    .from('jobs')
+    .select('*')
+    .eq('status', 'active')
+    .or('expires_at.is.null,expires_at.gt.2026-10-05T00:00:00Z')
+    .or(`category_id.eq.7,title.ilike.${f.service.filterLike(pref.desired_title)}`)
+    .or(
+      'work_mode.eq.remote,location_name.ilike."%Bakı%",location_name.ilike."%Baki%",location_name.ilike."%Baku%"',
+    )
+    .eq('salary_currency', 'AZN')
+    .in('work_mode', ['office'])
+    .or('salary_max.gte.1000,and(salary_max.is.null,salary_min.gte.1000)')
+    .range(0, 5);
+  await query;
+  assert.equal(url.searchParams.getAll('or').length, 4);
+  assert.match(url.searchParams.getAll('or')[1], /title.ilike."%React, \(Next\)%"/);
+  assert.equal(url.searchParams.get('status'), 'eq.active');
+});
