@@ -61,6 +61,86 @@ export class WhatsAppClientService {
     return messageId;
   }
 
+  async sendJobList(
+    to: string,
+    body: string,
+    rows: Array<{ id: string; title: string; description?: string }>,
+  ): Promise<string> {
+    if (
+      !rows.length ||
+      rows.length > 10 ||
+      body.length > 1024 ||
+      rows.some(
+        (row) =>
+          row.title.length > 24 || (row.description?.length ?? 0) > 72 || row.id.length > 200,
+      )
+    ) {
+      throw new Error('Invalid WhatsApp job list limits');
+    }
+    return this.sendJobInteractive(to, {
+      type: 'list',
+      body: { text: body },
+      action: { button: 'Seçim et', sections: [{ title: 'Vakansiya xidməti', rows }] },
+    });
+  }
+
+  async sendJobButtons(
+    to: string,
+    body: string,
+    buttons: Array<{ id: string; title: string }>,
+  ): Promise<string> {
+    if (
+      !buttons.length ||
+      buttons.length > 3 ||
+      body.length > 1024 ||
+      buttons.some((button) => button.title.length > 20 || button.id.length > 256)
+    ) {
+      throw new Error('Invalid WhatsApp job button limits');
+    }
+    return this.sendJobInteractive(to, {
+      type: 'button',
+      body: { text: body },
+      action: { buttons: buttons.map((reply) => ({ type: 'reply', reply })) },
+    });
+  }
+
+  async sendJobMainMenu(to: string, displayName?: string): Promise<string> {
+    return this.sendJobList(
+      to,
+      `${displayName ? `Salam, ${displayName.slice(0, 100)}! 👋` : 'Salam! 👋'}\nVakansiya xidmətinə xoş gəlmisiniz. Aşağıdan seçim edin.`,
+      [
+        { id: 'job:seeker', title: '🔎 İş axtarıram' },
+        { id: 'job:employer', title: '🏢 İşçi axtarıram' },
+        { id: 'job:all', title: '📋 Bütün vakansiyalar' },
+        { id: 'job:profile', title: '👤 Profilim' },
+        { id: 'job:matches', title: 'Mənə uyğun vakansiyalar' },
+      ],
+    );
+  }
+
+  private async sendJobInteractive(
+    to: string,
+    interactive: Record<string, unknown>,
+  ): Promise<string> {
+    const response = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'interactive',
+          interactive,
+        }),
+      },
+    );
+    const id = response.messages?.[0]?.id;
+    if (!id) throw new ExternalServiceError('Meta did not return a message id', 502, response);
+    return id;
+  }
+
   async sendMainMenu(
     to: string,
     profileName?: string,
@@ -780,3 +860,4 @@ async sendQuickActions(
       : { to: value };
   }
 }
+

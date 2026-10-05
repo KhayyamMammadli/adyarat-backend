@@ -1,3 +1,4 @@
+import { TelegramAdminService as TelegramNotifications } from '../telegram/telegram.service';
 import { Module } from '@nestjs/common';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { WhatsAppWebhookWorker } from '../whatsapp/whatsapp-webhook.worker';
@@ -8,6 +9,7 @@ import { JobAgentWebhookService } from './job-agent-webhook.service';
 @Module({
   imports: [WhatsAppModule],
   providers: [
+    TelegramNotifications,
     JobAdminService,
     JobAgentService,
     JobAgentWebhookService,

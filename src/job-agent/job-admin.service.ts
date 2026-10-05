@@ -12,7 +12,9 @@ export class JobAdminService {
   async pending(limit = 10): Promise<any[]> {
     const { data, error } = await this.supabase.client
       .from('jobs')
-      .select('id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,metadata,created_at')
+      .select(
+        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,metadata,created_at',
+      )
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(limit);
@@ -24,13 +26,20 @@ export class JobAdminService {
     const job = await this.getPending(jobId);
     const { data, error } = await this.supabase.client
       .from('jobs')
-      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .update({
+        status: 'active',
+        published_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', jobId)
       .eq('status', 'pending')
       .select('*')
       .single();
     if (error) throw error;
-    await this.notifyEmployer(job, `✅ Vakansiyanız təsdiqləndi və aktiv edildi.\n\n📢 ${job.title}`);
+    await this.notifyEmployer(
+      job,
+      `✅ Vakansiyanız təsdiqləndi və aktiv edildi.\n\n📢 ${job.title}`,
+    );
     return data;
   }
 
@@ -46,7 +55,10 @@ export class JobAdminService {
       .single();
     if (error) throw error;
     const suffix = reason?.trim() ? `\nSəbəb: ${reason.trim()}` : '';
-    await this.notifyEmployer(job, `❌ Vakansiyanız təsdiqlənmədi.\n\n📢 ${job.title}${suffix}\n\nDüzəliş edib yenidən yaratmaq üçün “Menyu” yazın.`);
+    await this.notifyEmployer(
+      job,
+      `❌ Vakansiyanız təsdiqlənmədi.\n\n📢 ${job.title}${suffix}\n\nDüzəliş edib yenidən yaratmaq üçün aşağıdakı menyudan seçim edin.`,
+    );
     return data;
   }
 
@@ -70,6 +82,9 @@ export class JobAdminService {
       .select('wa_id')
       .eq('id', profileId)
       .maybeSingle();
-    if (profile?.wa_id) await this.whatsapp.sendText(profile.wa_id, text);
+    if (profile?.wa_id) {
+      await this.whatsapp.sendText(profile.wa_id, text);
+      await this.whatsapp.sendJobMainMenu(profile.wa_id);
+    }
   }
 }
