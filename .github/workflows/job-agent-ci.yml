@@ -5,6 +5,7 @@ on:
     branches:
       - feat/job-agent-whatsapp
       - feat/job-agent-interactive-menu
+      - feat/telegram-admin-interactive
   pull_request:
 
 jobs:
