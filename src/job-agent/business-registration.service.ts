@@ -419,7 +419,7 @@ export class BusinessRegistrationService {
     await this.state(p.id, step);
     if (step === 'ready') {
       await this.whatsapp.sendText(p.wa_id, '✅ İş profiliniz saxlanıldı.');
-      await this.whatsapp.sendJobMainMenu(p.wa_id);
+      await this.whatsapp.sendJobMainMenu(p.wa_id, undefined, 'seeker');
     } else
       await this.prompt(
         p.wa_id,

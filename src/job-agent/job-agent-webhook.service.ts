@@ -60,7 +60,7 @@ export class JobAgentWebhookService {
           message.from,
           'Bu addımda mətnlə cavab verin və ya aşağıdakı menyudan seçim edin.',
         );
-        await this.whatsapp.sendJobMainMenu(message.from, profileName);
+        await this.jobAgent.sendMainMenu(message.from, profileName);
       } catch (error) {
         this.logger.error(
           `Job Agent message ${message.id} failed: ${error instanceof Error ? error.message : String(error)}`,
