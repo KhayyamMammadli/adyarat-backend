@@ -190,7 +190,7 @@ test('/admin opens button panel and create flow previews all model fields before
   const f = adminFixture();
   await fillDraft(f);
   assert.ok(
-    f.messages[0].markup.inline_keyboard.some((row) =>
+    f.messages.find((m) => m.markup?.inline_keyboard).markup.inline_keyboard.some((row) =>
       row.some((b) => b.callback_data === 'tg:new'),
     ),
   );
@@ -591,4 +591,29 @@ test('statistics panel and period pages use buttons and preserve unfinished admi
   const count = f.messages.length;
   await f.send(f.callback('tg:stats', { from: { id: 99 } }));
   assert.equal(f.messages.length, count);
+});
+
+test('plain greeting opens all admin features and installs a persistent command-free launcher', async () => {
+  const f = adminFixture();
+  await f.tgText('Salam');
+  const keyboard = f.messages.find((m) => m.markup?.keyboard)?.markup;
+  assert.equal(keyboard.is_persistent, true);
+  assert.equal(keyboard.one_time_keyboard, false);
+  assert.equal(keyboard.keyboard[0][0].text, '🏠 Admin paneli');
+  const actions = f.messages
+    .at(-1)
+    .markup.inline_keyboard.flat()
+    .map((b) => b.callback_data);
+  for (const action of ['tg:new', 'tg:pending', 'tg:businesses', 'tg:stats'])
+    assert(actions.includes(action));
+  await f.click('tg:new');
+  assert.equal(f.session().kind, 'create');
+  await f.tgText('🏠 Admin paneli');
+  assert.equal(f.session().kind, 'idle');
+  assert.equal(f.tables.jobs.length, 0);
+});
+test('unauthorized messages cannot install admin keyboard', async () => {
+  const f = adminFixture();
+  await f.send(f.message('🏠 Admin paneli', { from: { id: 99 } }));
+  assert.equal(f.messages.length, 0);
 });
