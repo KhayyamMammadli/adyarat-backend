@@ -1,3 +1,4 @@
+import { statisticsPeriod } from '../telegram/admin-statistics';
 import { validCoordinates } from './vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -10,6 +11,49 @@ export class JobAdminService {
     private readonly supabase: SupabaseService,
     private readonly whatsapp: WhatsAppClientService,
   ) {}
+
+  async statistics(now = new Date()) {
+    const count = async (query: any): Promise<number> => {
+      const result = await query;
+      if (result.error) throw result.error;
+      if (typeof result.count !== 'number') throw new Error('Statistics count unavailable');
+      return result.count;
+    };
+    const jobs = () =>
+      this.supabase.client.from('jobs').select('id', { count: 'exact', head: true });
+    const profiles = () =>
+      this.supabase.client.from('job_agent_profiles').select('id', { count: 'exact', head: true });
+    const day = statisticsPeriod('day', now),
+      week = statisticsPeriod('week', now);
+    const [totalJobs, activeJobs, pendingJobs, totalUsers, employers, seekers, today, thisWeek] =
+      await Promise.all([
+        count(jobs()),
+        count(
+          jobs().eq('status', 'active').or(`expires_at.is.null,expires_at.gt.${now.toISOString()}`),
+        ),
+        count(jobs().eq('status', 'pending')),
+        count(profiles()),
+        count(profiles().eq('role', 'employer')),
+        count(profiles().eq('role', 'seeker')),
+        count(jobs().gte('created_at', day.from).lte('created_at', day.to)),
+        count(jobs().gte('created_at', week.from).lte('created_at', week.to)),
+      ]);
+    return { totalJobs, activeJobs, pendingJobs, totalUsers, employers, seekers, today, thisWeek };
+  }
+
+  async periodJobs(period: 'day' | 'week', page: number, now = new Date()): Promise<any[]> {
+    const bounds = statisticsPeriod(period, now);
+    const result = await this.supabase.client
+      .from('jobs')
+      .select('id,title,company_name,status,created_at')
+      .gte('created_at', bounds.from)
+      .lte('created_at', bounds.to)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(page * 5, page * 5 + 5);
+    if (result.error) throw result.error;
+    return result.data ?? [];
+  }
 
   async pending(limit = 10): Promise<any[]> {
     const { data, error } = await this.supabase.client
