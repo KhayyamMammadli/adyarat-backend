@@ -1,7 +1,15 @@
 export type InlineKeyboard = {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
 };
-export type ReplyMarkup = InlineKeyboard | { force_reply: true; selective?: boolean };
+export type ReplyMarkup =
+  | InlineKeyboard
+  | { force_reply: true; selective?: boolean }
+  | {
+      keyboard: Array<Array<{ text: string }>>;
+      resize_keyboard: boolean;
+      is_persistent: boolean;
+      one_time_keyboard: boolean;
+    };
 export type TelegramMessage = {
   message_id?: number;
   from?: { id?: number; is_bot?: boolean };

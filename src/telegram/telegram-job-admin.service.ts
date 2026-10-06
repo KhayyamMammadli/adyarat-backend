@@ -100,9 +100,13 @@ export class TelegramJobAdminService {
     const idle = (): AdminSession => ({ kind: 'idle', lastUpdateId: nextId });
     const expired = state.session.expiresAt && state.session.expiresAt <= new Date().toISOString();
 
-    if (action === 'tg:admin' || ['/admin', '/start', '/menu', '/cancel'].includes(command ?? '')) {
+    if (
+      action === 'tg:admin' ||
+      text === '🏠 Admin paneli' ||
+      ['/admin', '/start', '/menu', '/cancel'].includes(command ?? '')
+    ) {
       await this.states.save(state, idle());
-      await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
+      await this.sendPanel(actor);
       return true;
     }
     if (action === 'tg:stats' || command === '/stats') {
@@ -492,8 +496,28 @@ export class TelegramJobAdminService {
       );
     else if (state.session.kind !== 'idle')
       await this.promptAndSave(actor, state, { ...state.session, lastUpdateId: nextId });
-    else await this.telegram.sendTo(actor.chatId, 'Admin panelindən seçim edin.', PANEL);
+    else {
+      await this.states.save(state, idle());
+      await this.sendPanel(actor);
+    }
     return true;
+  }
+
+  private async sendPanel(actor: AdminActor): Promise<void> {
+    // Private admin chats retain this launcher across inline menus. Groups use
+    // inline controls, avoiding a reply keyboard visible to unrelated members.
+    if (!actor.group)
+      await this.telegram.sendTo(
+        actor.chatId,
+        '🏠 Admin panelini bu düymə ilə istənilən vaxt aça bilərsiniz.',
+        {
+          keyboard: [[{ text: '🏠 Admin paneli' }]],
+          resize_keyboard: true,
+          is_persistent: true,
+          one_time_keyboard: false,
+        },
+      );
+    await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
   }
 
   private async advance(

@@ -12,6 +12,7 @@ on:
       - feat/business-registration-moderation
       - feat/role-menu-quick-filters
       - feat/telegram-admin-statistics
+      - feat/telegram-persistent-admin-menu
   pull_request:
 
 jobs:
