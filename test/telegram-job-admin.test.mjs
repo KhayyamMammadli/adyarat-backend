@@ -556,3 +556,39 @@ test('legacy persisted Telegram confirm without GPS returns to location step saf
   assert.equal(f.session().step, 'location_pin');
   assert.equal(f.tables.jobs.length, 0);
 });
+
+test('statistics panel and period pages use buttons and preserve unfinished admin draft; unauthorized callbacks blocked', async () => {
+  const f = adminFixture();
+  f.admin.statistics = async () => ({
+    totalJobs: 21,
+    activeJobs: 1,
+    pendingJobs: 20,
+    totalUsers: 4,
+    employers: 1,
+    seekers: 2,
+    today: 3,
+    thisWeek: 8,
+  });
+  f.admin.periodJobs = async () =>
+    Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1,
+      title: 'Title',
+      company_name: 'Company',
+      status: 'pending',
+    }));
+  await f.click('tg:new');
+  const before = f.session();
+  await f.click('tg:stats');
+  assert.match(f.messages.at(-1).text, /Bütün elanlar: 21/);
+  assert.equal(f.session().step, before.step);
+  await f.click('tg:stats:day:0');
+  assert(
+    f.messages
+      .at(-1)
+      .markup.inline_keyboard.flat()
+      .some((b) => b.callback_data === 'tg:stats:day:1'),
+  );
+  const count = f.messages.length;
+  await f.send(f.callback('tg:stats', { from: { id: 99 } }));
+  assert.equal(f.messages.length, count);
+});

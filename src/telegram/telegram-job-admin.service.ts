@@ -20,6 +20,7 @@ const PANEL: InlineKeyboard = {
     [{ text: '➕ Vakansiya əlavə et', callback_data: 'tg:new' }],
     [{ text: '🏢 Biznes profilləri', callback_data: 'tg:businesses' }],
     [{ text: '📋 Gözləyən vakansiyalar', callback_data: 'tg:pending' }],
+    [{ text: '📊 Statistika', callback_data: 'tg:stats' }],
   ],
 };
 const STEPS = [
@@ -82,6 +83,7 @@ export class TelegramJobAdminService {
         '/start',
         '/menu',
         '/pending',
+        '/stats',
         '/vakansiyalar',
         '/approve',
         '/reject',
@@ -101,6 +103,71 @@ export class TelegramJobAdminService {
     if (action === 'tg:admin' || ['/admin', '/start', '/menu', '/cancel'].includes(command ?? '')) {
       await this.states.save(state, idle());
       await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
+      return true;
+    }
+    if (action === 'tg:stats' || command === '/stats') {
+      const s = await this.jobs.statistics();
+      await this.telegram.sendTo(
+        actor.chatId,
+        [
+          '📊 STATİSTİKA',
+          `📋 Bütün elanlar: ${s.totalJobs}`,
+          `✅ Aktiv elanlar: ${s.activeJobs}`,
+          `⏳ Gözləyən elanlar: ${s.pendingJobs}`,
+          `👥 Bütün istifadəçilər: ${s.totalUsers}`,
+          `🏢 İşəgötürən: ${s.employers}`,
+          `🔎 İş axtaran: ${s.seekers}`,
+          `📅 Bu gün əlavə edilən: ${s.today}`,
+          `🗓 Bu həftə əlavə edilən: ${s.thisWeek}`,
+          'Bakı vaxtı • Həftə bazar ertəsindən başlayır.',
+          'Saylar sistemə əlavə edilmə tarixinə görədir; import edilmiş elanlar da daxildir.',
+        ].join('\n'),
+        {
+          inline_keyboard: [
+            [{ text: '📅 Bugünkü elanlar', callback_data: 'tg:stats:day:0' }],
+            [{ text: '🗓 Bu həftənin elanları', callback_data: 'tg:stats:week:0' }],
+            [
+              { text: '🔄 Yenilə', callback_data: 'tg:stats' },
+              { text: 'Əsas menyu', callback_data: 'tg:admin' },
+            ],
+          ],
+        },
+      );
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
+      return true;
+    }
+    const periodPage = /^tg:stats:(day|week):(\d{1,6})$/.exec(action ?? '');
+    if (periodPage) {
+      const page = Number(periodPage[2]);
+      const rows = await this.jobs.periodJobs(periodPage[1] as 'day' | 'week', page);
+      const buttons = [];
+      if (page)
+        buttons.push({ text: '⬅️ Geri', callback_data: `tg:stats:${periodPage[1]}:${page - 1}` });
+      if (rows.length > 5)
+        buttons.push({
+          text: 'Növbəti ➡️',
+          callback_data: `tg:stats:${periodPage[1]}:${page + 1}`,
+        });
+      await this.telegram.sendTo(
+        actor.chatId,
+        `${periodPage[1] === 'day' ? '📅 Bugünkü' : '🗓 Bu həftənin'} elanlar — səhifə ${page + 1}\n\n` +
+          (rows.length
+            ? rows
+                .slice(0, 5)
+                .map(
+                  (j) =>
+                    `#${j.id} — ${String(j.title).slice(0, 120)}\n${String(j.company_name ?? '').slice(0, 160)} • ${j.status}`,
+                )
+                .join('\n\n')
+            : 'Elan yoxdur.'),
+        {
+          inline_keyboard: [
+            ...(buttons.length ? [buttons] : []),
+            [{ text: '📊 Statistika', callback_data: 'tg:stats' }],
+          ],
+        },
+      );
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
     if (action === 'tg:businesses') {

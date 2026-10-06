@@ -11,6 +11,7 @@ on:
       - feat/employer-profile-onboarding
       - feat/business-registration-moderation
       - feat/role-menu-quick-filters
+      - feat/telegram-admin-statistics
   pull_request:
 
 jobs:
