@@ -29,4 +29,10 @@ export type TelegramUpdate = {
     data?: string;
   };
 };
-export type AdminActor = { chatId: number; userId: number; group: boolean };
+export type AdminActor = {
+  chatId: number;
+  userId: number;
+  group: boolean;
+  role?: 'superadmin' | 'admin' | 'moderator';
+  permissions?: import('./staff-permissions').StaffPermission[];
+};

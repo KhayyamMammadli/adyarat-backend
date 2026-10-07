@@ -1,3 +1,5 @@
+import { TelegramStaffService } from './telegram-staff.service';
+import { TelegramStaffMenuService } from './telegram-staff-menu.service';
 import { Module } from '@nestjs/common';
 import { JobAgentModule } from '../job-agent/job-agent.module';
 import { TelegramAdminService } from './telegram-admin.service';
@@ -9,7 +11,13 @@ import { TelegramController } from './telegram.controller';
 @Module({
   imports: [JobAgentModule, TelegramTransportModule],
   controllers: [TelegramController],
-  providers: [TelegramAdminService, TelegramAdminStateService, TelegramJobAdminService],
+  providers: [
+    TelegramStaffService,
+    TelegramStaffMenuService,
+    TelegramAdminService,
+    TelegramAdminStateService,
+    TelegramJobAdminService,
+  ],
   exports: [TelegramAdminService],
 })
 export class TelegramModule {}

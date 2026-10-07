@@ -1,9 +1,11 @@
+import { TelegramStaffService } from './telegram-staff.service';
+import { can, permittedPanel, requiredPermission } from './staff-permissions';
 import {
   BusinessRegistrationService,
   voenEvidence,
 } from '../job-agent/business-registration.service';
 import { validCoordinates, validEmail } from '../job-agent/vacancy-validation';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { JobAdminService } from '../job-agent/job-admin.service';
 import { TelegramAdminService as TelegramTransport } from './telegram.service';
@@ -56,6 +58,7 @@ export class TelegramJobAdminService {
     private readonly states: TelegramAdminStateService,
     private readonly telegram: TelegramTransport,
     private readonly businesses: BusinessRegistrationService,
+    @Optional() private readonly staff?: TelegramStaffService,
   ) {}
 
   async handle(actor: AdminActor, update: TelegramUpdate): Promise<boolean> {
@@ -71,6 +74,11 @@ export class TelegramJobAdminService {
   }
 
   private async process(actor: AdminActor, update: TelegramUpdate): Promise<boolean> {
+    if (this.staff) {
+      const access = await this.staff.resolve(actor.userId);
+      if (!access) return true;
+      actor = { ...actor, ...access };
+    }
     const action = update.callback_query?.data;
     const text = update.message?.text?.trim();
     const command = text?.split(/\s+/)[0].toLocaleLowerCase('az').split('@')[0];
@@ -92,6 +100,12 @@ export class TelegramJobAdminService {
     )
       return false;
     const state = await this.states.load(actor);
+    const panel = permittedPanel(actor, PANEL);
+    const required = requiredPermission(action, text, state.session.kind);
+    if (required && !can(actor, required)) {
+      await this.telegram.sendTo(actor.chatId, 'Bu əməliyyata icazəniz yoxdur.', panel);
+      return true;
+    }
     const updateId = update.update_id;
     if (!Number.isSafeInteger(updateId)) return true;
     if (updateId! <= state.session.lastUpdateId) return true;
@@ -220,20 +234,20 @@ export class TelegramJobAdminService {
               ? '✅ Biznes profili təsdiqləndi.'
               : '❌ Biznes profili rədd edildi.'
             : 'Bu profil artıq yoxlanılıb və ya düymə köhnədir.',
-          PANEL,
+          panel,
         );
       } catch {
         await this.telegram.sendTo(
           actor.chatId,
           'Profil əməliyyatı alınmadı. Yenidən cəhd edin.',
-          PANEL,
+          panel,
         );
       }
       await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
     if (action === 'tg:pending' || command === '/pending' || command === '/vakansiyalar') {
-      await this.sendPending(actor.chatId);
+      await this.sendPending(actor);
       await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
@@ -272,7 +286,7 @@ export class TelegramJobAdminService {
         await this.telegram.sendTo(
           actor.chatId,
           `✅ #${jobId} təsdiqləndi və aktiv edildi.`,
-          PANEL,
+          panel,
         );
       } catch (error) {
         await this.moderationError(actor.chatId, error);
@@ -295,7 +309,7 @@ export class TelegramJobAdminService {
       if (reject[2]) {
         await this.jobs.reject(jobId, reject[2]);
         await this.states.save(state, idle());
-        await this.telegram.sendTo(actor.chatId, `❌ #${jobId} rədd edildi.`, PANEL);
+        await this.telegram.sendTo(actor.chatId, `❌ #${jobId} rədd edildi.`, panel);
         return true;
       }
       await this.promptAndSave(actor, state, {
@@ -310,12 +324,12 @@ export class TelegramJobAdminService {
     }
     if (action?.startsWith('tg:cancel:') && action === `tg:cancel:${state.session.nonce}`) {
       await this.states.save(state, idle());
-      await this.telegram.sendTo(actor.chatId, 'Əməliyyat ləğv edildi.', PANEL);
+      await this.telegram.sendTo(actor.chatId, 'Əməliyyat ləğv edildi.', panel);
       return true;
     }
     if (expired) {
       await this.states.save(state, idle());
-      await this.telegram.sendTo(actor.chatId, 'Əməliyyatın vaxtı bitib. Yenidən başlayın.', PANEL);
+      await this.telegram.sendTo(actor.chatId, 'Əməliyyatın vaxtı bitib. Yenidən başlayın.', panel);
       return true;
     }
 
@@ -345,13 +359,13 @@ export class TelegramJobAdminService {
             approved
               ? '✅ VÖEN admin tərəfindən yoxlanıldı və biznes profili təsdiqləndi.'
               : 'Profil dəyişib və ya artıq yoxlanılıb. Biznes panelindən yenidən açın.',
-            PANEL,
+            panel,
           );
         } catch {
           await this.telegram.sendTo(
             actor.chatId,
             'Yoxlama saxlanılmadı. Biznes profilinin statusunu paneldən yoxlayın.',
-            PANEL,
+            panel,
           );
         }
         return true;
@@ -402,7 +416,7 @@ export class TelegramJobAdminService {
         await this.telegram.sendTo(
           actor.chatId,
           `✅ #${job.id} yaradıldı və aktiv edildi. WhatsApp vakansiya siyahısında görünür.`,
-          PANEL,
+          panel,
         );
         return true;
       }
@@ -481,7 +495,7 @@ export class TelegramJobAdminService {
         await this.telegram.sendTo(
           actor.chatId,
           `❌ #${state.session.jobId} rədd edildi.\nSəbəb: ${text}`,
-          PANEL,
+          panel,
         );
       } catch (error) {
         await this.moderationError(actor.chatId, error);
@@ -517,7 +531,11 @@ export class TelegramJobAdminService {
           one_time_keyboard: false,
         },
       );
-    await this.telegram.sendTo(actor.chatId, '👤 Vakansiya admin paneli', PANEL);
+    await this.telegram.sendTo(
+      actor.chatId,
+      '👤 Vakansiya admin paneli',
+      permittedPanel(actor, PANEL),
+    );
   }
 
   private async advance(
@@ -604,15 +622,20 @@ export class TelegramJobAdminService {
     }
     await this.states.save(state, { ...session, promptMessageId: message.message_id });
   }
-  private async sendPending(chatId: number): Promise<void> {
+  private async sendPending(actor: AdminActor): Promise<void> {
+    const chatId = actor.chatId;
     const jobs = await this.jobs.pending(10);
     await this.telegram.sendTo(
       chatId,
       jobs.length ? '📋 GÖZLƏYƏN VAKANSİYALAR' : '✅ Gözləyən vakansiya yoxdur.',
-      PANEL,
+      permittedPanel(actor, PANEL),
     );
     for (const job of jobs)
-      await this.telegram.sendTo(chatId, formatTelegramJob(job), moderationButtons(job.id));
+      await this.telegram.sendTo(
+        chatId,
+        formatTelegramJob(job),
+        permittedPanel(actor, moderationButtons(job.id)),
+      );
   }
   private parse(step: string, text: string): Record<string, unknown> | undefined {
     const limits: Record<string, number> = {
