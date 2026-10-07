@@ -584,9 +584,13 @@ export class JobAgentService {
       .range(page * 6, page * 6 + 6);
     if (error) throw error;
     await this.setState(id, 'filter_category');
-    const rows = (data ?? [])
+    const rows: Array<{ id: string; title: string; description?: string }> = (data ?? [])
       .slice(0, 6)
-      .map((c) => ({ id: `job:filter:category:${c.id}`, title: String(c.name).slice(0, 24) }));
+      .map((c) => ({
+        id: `job:filter:category:${c.id}`,
+        title: String(c.name).slice(0, 24),
+        description: String(c.name).slice(0, 72),
+      }));
     if (page) rows.push({ id: `job:filter:categories:${page - 1}`, title: '⬅️ Geri' });
     if ((data?.length ?? 0) > 6)
       rows.push({ id: `job:filter:categories:${page + 1}`, title: 'Növbəti ➡️' });
