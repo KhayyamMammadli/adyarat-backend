@@ -1,3 +1,4 @@
+import { publicationLabel } from './vacancy-lifecycle';
 import { statisticsPeriod } from '../telegram/admin-statistics';
 import { validCoordinates } from './vacancy-validation';
 import { Injectable, Logger } from '@nestjs/common';
@@ -59,7 +60,7 @@ export class JobAdminService {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select(
-        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at,source,source_url,latitude,longitude',
+        'id,title,company_name,location_name,work_mode,salary_min,salary_max,salary_currency,description,contact_phone,contact_email,metadata,created_at,source,source_url,latitude,longitude,scheduled_at,approved_at,delete_at,revision',
       )
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
@@ -68,38 +69,45 @@ export class JobAdminService {
     return data ?? [];
   }
 
-  async approve(jobId: number): Promise<any> {
-    const job = await this.getPending(jobId);
+  async approve(jobId: number, revision = 1): Promise<any> {
+    const job = await this.getPending(jobId, revision);
     const { data, error } = await this.supabase.client
       .from('jobs')
       .update({
-        status: 'active',
-        published_at: new Date().toISOString(),
+        status:
+          job.scheduled_at && Date.parse(job.scheduled_at) > Date.now() ? 'scheduled' : 'active',
+        approved_at: new Date().toISOString(),
+        published_at:
+          job.scheduled_at && Date.parse(job.scheduled_at) > Date.now()
+            ? null
+            : new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', jobId)
       .eq('status', 'pending')
+      .match(job.revision != null ? { revision: job.revision } : {})
       .select('*')
       .single();
     if (error) throw error;
     await this.notifyEmployer(
       job,
-      `✅ Vakansiyanız təsdiqləndi və aktiv edildi.\n\n📢 ${job.title}`,
+      `✅ Vakansiyanız təsdiqləndi.\n${data.status === 'scheduled' ? publicationLabel(data) : 'Elan aktiv edildi.'}\n\n📢 ${job.title}`,
     );
     return data;
   }
 
-  async reject(jobId: number, reason?: string): Promise<any> {
+  async reject(jobId: number, reason?: string, revision = 1): Promise<any> {
     const cleanReason = reason?.trim();
     if (!cleanReason || cleanReason.length > 500)
       throw new Error('Reject reason must contain 1–500 characters');
-    const job = await this.getPending(jobId);
+    const job = await this.getPending(jobId, revision);
     const metadata = { ...(job.metadata ?? {}), moderation_reason: cleanReason };
     const { data, error } = await this.supabase.client
       .from('jobs')
       .update({ status: 'rejected', metadata, updated_at: new Date().toISOString() })
       .eq('id', jobId)
       .eq('status', 'pending')
+      .match(job.revision != null ? { revision: job.revision } : {})
       .select('*')
       .single();
     if (error) throw error;
@@ -122,8 +130,15 @@ export class JobAdminService {
       ...draft,
       source: 'telegram_admin',
       source_id: sourceId,
-      status: 'active',
-      published_at: new Date().toISOString(),
+      status:
+        draft.scheduled_at && Date.parse(String(draft.scheduled_at)) > Date.now()
+          ? 'scheduled'
+          : 'active',
+      approved_at: new Date().toISOString(),
+      published_at:
+        draft.scheduled_at && Date.parse(String(draft.scheduled_at)) > Date.now()
+          ? null
+          : new Date().toISOString(),
       metadata: { telegram_admin_user_id: userId },
     };
     const { data, error } = await this.supabase.client
@@ -143,7 +158,7 @@ export class JobAdminService {
     return existing.data;
   }
 
-  async getPending(jobId: number): Promise<any> {
+  async getPending(jobId: number, revision = 1): Promise<any> {
     const { data, error } = await this.supabase.client
       .from('jobs')
       .select('*')
@@ -151,7 +166,12 @@ export class JobAdminService {
       .eq('status', 'pending')
       .maybeSingle();
     if (error) throw error;
-    if (!data) throw new Error(`Pending vacancy #${jobId} not found`);
+    if (
+      !data ||
+      (data.revision ?? 1) !== revision ||
+      (data.delete_at && Date.parse(data.delete_at) <= Date.now())
+    )
+      throw new Error(`Pending vacancy #${jobId} not found or revision changed`);
     return data;
   }
 

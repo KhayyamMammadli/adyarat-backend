@@ -3,11 +3,12 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { AdminActor } from './telegram.types';
 
 export type AdminSession = {
-  kind: 'idle' | 'create' | 'reject' | 'business_verify' | 'staff';
+  kind: 'idle' | 'create' | 'reject' | 'business_verify' | 'staff' | 'edit';
   nonce?: string;
   step?: string;
   draft?: Record<string, any>;
   jobId?: number;
+  jobRevision?: number;
   businessId?: string;
   registrationToken?: string;
   moderationMessageId?: number;

@@ -1,3 +1,8 @@
+import {
+  parsePublicationTime,
+  RETENTION_MS,
+  publicationLabel,
+} from '../job-agent/vacancy-lifecycle';
 import { TelegramStaffService } from './telegram-staff.service';
 import { can, permittedPanel, requiredPermission } from './staff-permissions';
 import {
@@ -20,6 +25,7 @@ import { formatTelegramJob, moderationButtons } from './job-message';
 const PANEL: InlineKeyboard = {
   inline_keyboard: [
     [{ text: '➕ Vakansiya əlavə et', callback_data: 'tg:new' }],
+    [{ text: '✏️ Elanlarım / Redaktə', callback_data: 'editjob:list:0' }],
     [{ text: '🏢 Biznes profilləri', callback_data: 'tg:businesses' }],
     [{ text: '📋 Gözləyən vakansiyalar', callback_data: 'tg:pending' }],
     [{ text: '📊 Statistika', callback_data: 'tg:stats' }],
@@ -264,13 +270,14 @@ export class TelegramJobAdminService {
       return true;
     }
     const approve =
-      /^tg:approve:(\d+)$/.exec(action ?? '') ??
+      /^tg:approve:(\d+)(?::\d+)?$/.exec(action ?? '') ??
       (command === '/approve' ? /^\/approve(?:@\w+)?\s+(\d+)\s*$/.exec(text ?? '') : null);
     const reject =
-      /^tg:reject:(\d+)$/.exec(action ?? '') ??
+      /^tg:reject:(\d+)(?::\d+)?$/.exec(action ?? '') ??
       (command === '/reject'
         ? /^\/reject(?:@\w+)?\s+(\d+)(?:\s+([\s\S]+))?$/.exec(text ?? '')
         : null);
+    const jobRevision = Number(/^tg:(?:approve|reject):\d+:(\d+)$/.exec(action ?? '')?.[1] ?? 1);
     if (approve) {
       const jobId = this.jobId(approve[1]);
       if (!jobId) {
@@ -278,14 +285,16 @@ export class TelegramJobAdminService {
         return true;
       }
       try {
-        await this.jobs.approve(jobId);
+        const approved = await this.jobs.approve(jobId, jobRevision);
         await this.removeModerationButtons(
           actor.chatId,
           update.callback_query?.message?.message_id,
         );
         await this.telegram.sendTo(
           actor.chatId,
-          `✅ #${jobId} təsdiqləndi və aktiv edildi.`,
+          approved.status === 'scheduled'
+            ? `✅ #${jobId} təsdiqləndi. ${publicationLabel(approved)}`
+            : `✅ #${jobId} təsdiqləndi və aktiv edildi.`,
           panel,
         );
       } catch (error) {
@@ -301,13 +310,13 @@ export class TelegramJobAdminService {
         return true;
       }
       try {
-        await this.jobs.getPending(jobId);
+        await this.jobs.getPending(jobId, jobRevision);
       } catch (error) {
         await this.moderationError(actor.chatId, error);
         return true;
       }
       if (reject[2]) {
-        await this.jobs.reject(jobId, reject[2]);
+        await this.jobs.reject(jobId, reject[2], jobRevision);
         await this.states.save(state, idle());
         await this.telegram.sendTo(actor.chatId, `❌ #${jobId} rədd edildi.`, panel);
         return true;
@@ -316,6 +325,7 @@ export class TelegramJobAdminService {
         kind: 'reject',
         nonce: nonce(),
         jobId,
+        jobRevision,
         moderationMessageId: update.callback_query?.message?.message_id,
         lastUpdateId: nextId,
         expiresAt: this.expiry(),
@@ -390,6 +400,41 @@ export class TelegramJobAdminService {
     }
     if (state.session.kind === 'create') {
       const prefix = `tg:create:${state.session.nonce}:`;
+      if (action === `${prefix}plan` && state.session.step === 'confirm') {
+        await this.promptAndSave(actor, state, {
+          ...state.session,
+          step: 'publication_time',
+          lastUpdateId: nextId,
+        });
+        return true;
+      }
+      if (action === `${prefix}now` && state.session.step === 'confirm') {
+        await this.promptAndSave(actor, state, {
+          ...state.session,
+          draft: { ...state.session.draft, scheduled_at: null },
+          lastUpdateId: nextId,
+        });
+        return true;
+      }
+      if (!action && text && state.session.step === 'publication_time') {
+        if (!this.matchesReply(actor, state.session, update)) return true;
+        const scheduled_at = parsePublicationTime(text, Date.now() + RETENTION_MS);
+        if (!scheduled_at) {
+          await this.telegram.sendTo(
+            actor.chatId,
+            'Gələcək tarix yazın: DD.MM.YYYY HH:mm (Bakı), ən çox 28 gün irəli.',
+          );
+          return true;
+        }
+        await this.promptAndSave(actor, state, {
+          ...state.session,
+          step: 'confirm',
+          draft: { ...state.session.draft, scheduled_at },
+          lastUpdateId: nextId,
+        });
+        return true;
+      }
+
       if (action === `${prefix}publish` && state.session.step === 'confirm') {
         if (
           ['office', 'hybrid'].includes(state.session.draft?.work_mode) &&
@@ -415,7 +460,9 @@ export class TelegramJobAdminService {
         );
         await this.telegram.sendTo(
           actor.chatId,
-          `✅ #${job.id} yaradıldı və aktiv edildi. WhatsApp vakansiya siyahısında görünür.`,
+          job.status === 'scheduled'
+            ? `✅ #${job.id} yaradıldı. ${publicationLabel(job)}`
+            : `✅ #${job.id} yaradıldı və aktiv edildi. WhatsApp vakansiya siyahısında görünür.`,
           panel,
         );
         return true;
@@ -489,7 +536,7 @@ export class TelegramJobAdminService {
         return true;
       }
       try {
-        await this.jobs.reject(state.session.jobId!, text);
+        await this.jobs.reject(state.session.jobId!, text, state.session.jobRevision ?? 1);
         await this.removeModerationButtons(actor.chatId, state.session.moderationMessageId);
         await this.states.save(state, idle());
         await this.telegram.sendTo(
@@ -594,10 +641,14 @@ export class TelegramJobAdminService {
     } else if (session.kind === 'create' && session.step === 'confirm') {
       message = await this.telegram.sendTo(
         actor.chatId,
-        `${formatTelegramJob(session.draft!)}\n\nElanı birbaşa aktiv etmək üçün təsdiqləyin.`,
+        `${formatTelegramJob(session.draft!)}\n\nMəlumatları və yayım vaxtını yoxlayıb təsdiqləyin.`,
         {
           inline_keyboard: [
-            [{ text: '✅ Yarat və aktiv et', callback_data: `tg:create:${session.nonce}:publish` }],
+            [{ text: '✅ Təsdiqlə və yarat', callback_data: `tg:create:${session.nonce}:publish` }],
+            [
+              { text: '📅 Vaxt seç', callback_data: `tg:create:${session.nonce}:plan` },
+              { text: '📢 Dərhal', callback_data: `tg:create:${session.nonce}:now` },
+            ],
             [cancel],
           ],
         },
@@ -608,7 +659,9 @@ export class TelegramJobAdminService {
           ? `VÖEN: ${session.draft?.voen}\nRəsmi DVX səhifəsi: https://new.e-taxes.gov.az/etaxes/services/taxpayer-info\nVÖEN-i rəsmi bazada yoxlayın. Qeyd tapılıb biznesə uyğun gəlirsə, oradakı qeydiyyat adını yazın. Yoxlaya bilmirsinizsə təsdiqləməyin; /cancel ilə geri qayıdın və lazım olduqda profili rədd edin.`
           : session.kind === 'reject'
             ? `❌ #${session.jobId} üçün rədd səbəbini yazın (1–500 simvol).`
-            : QUESTIONS[session.step!];
+            : session.step === 'publication_time'
+              ? 'Bakı vaxtı ilə gələcək yayım tarixi yazın: DD.MM.YYYY HH:mm. Ən çox 28 gün irəli.'
+              : QUESTIONS[session.step!];
       message = await this.telegram.sendTo(actor.chatId, question, { force_reply: true });
       const buttons = [cancel];
       if (session.step === 'salary')
@@ -634,7 +687,7 @@ export class TelegramJobAdminService {
       await this.telegram.sendTo(
         chatId,
         formatTelegramJob(job),
-        permittedPanel(actor, moderationButtons(job.id)),
+        permittedPanel(actor, moderationButtons(job.id, job.revision)),
       );
   }
   private parse(step: string, text: string): Record<string, unknown> | undefined {

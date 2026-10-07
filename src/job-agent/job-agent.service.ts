@@ -1,3 +1,5 @@
+import { VacancyManagementService } from './vacancy-management.service';
+import { parsePublicationTime, retentionDeadline, publicationLabel } from './vacancy-lifecycle';
 import { BusinessRegistrationService } from './business-registration.service';
 import { validPhone, validCoordinates, mapsLink } from './vacancy-validation';
 import {
@@ -8,7 +10,7 @@ import {
   filteredVacancies,
 } from './vacancy-query';
 import { moderationButtons, formatTelegramJob } from '../telegram/job-message';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
 import { TelegramAdminService as TelegramNotifications } from '../telegram/telegram.service';
@@ -50,6 +52,10 @@ type Vacancy = {
   source?: string;
   source_url?: string;
   metadata?: Record<string, any>;
+  scheduled_at?: string | null;
+  created_at?: string;
+  delete_at?: string;
+  revision?: number;
 };
 
 @Injectable()
@@ -59,6 +65,7 @@ export class JobAgentService {
     private readonly whatsapp: WhatsAppClientService,
     private readonly telegram: TelegramNotifications,
     private readonly businesses: BusinessRegistrationService,
+    @Optional() private readonly management?: VacancyManagementService,
   ) {}
 
   async welcome(waId: string, displayName?: string): Promise<void> {
@@ -90,6 +97,20 @@ export class JobAgentService {
     const profile = await this.upsertProfile(waId, displayName);
     if (action === 'job:menu') {
       await this.welcome(waId, displayName);
+      return;
+    }
+    if (this.management && (await this.management.interactive(profile, action))) return;
+    if (profile.state === 'employer_confirm' && action === 'job:schedule:later') {
+      await this.setState(profile.id, 'employer_schedule');
+      await this.prompt(
+        waId,
+        'Bakı vaxtı ilə gələcək tarix yazın: DD.MM.YYYY HH:mm. Elan yaradıldıqdan 28 gün ərzində yayımlana bilər.',
+      );
+      return;
+    }
+    if (profile.state === 'employer_confirm' && action === 'job:schedule:now') {
+      await this.updateDraft(profile.id, { scheduled_at: null });
+      await this.sendConfirmation(waId, await this.draft(profile.id));
       return;
     }
     // Only explicit interactive role IDs may interrupt a partially completed flow.
@@ -260,6 +281,22 @@ export class JobAgentService {
       await this.prompt(waId, `Cavab 1–${limit} simvol arasında olmalıdır.`);
       return true;
     }
+    if (this.management && (await this.management.text(profile, raw))) return true;
+    if (profile.state === 'employer_schedule') {
+      const job = await this.draft(profile.id);
+      const scheduled_at = parsePublicationTime(raw, retentionDeadline(job));
+      if (!scheduled_at) {
+        await this.prompt(
+          waId,
+          'Gələcək tarix və saat yazın: DD.MM.YYYY HH:mm (Bakı). Tarix 28 günlük müddətin daxilində olmalıdır.',
+        );
+        return true;
+      }
+      await this.updateDraft(profile.id, { scheduled_at });
+      await this.setState(profile.id, 'employer_confirm');
+      await this.sendConfirmation(waId, await this.draft(profile.id));
+      return true;
+    }
     if (await this.businesses.text(profile, raw)) return true;
     if (['seeker_email', 'seeker_phone'].includes(profile.state)) {
       if (
@@ -385,6 +422,7 @@ export class JobAgentService {
       await this.prompt(waId, 'Düzgün xəritə lokasiyası göndərin.');
       return;
     }
+    if (this.management && (await this.management.location(profile, location))) return;
     const coordinates = { latitude: location.latitude, longitude: location.longitude };
     if (profile.state === 'employer_pin') {
       const job = await this.draft(profile.id);
@@ -654,11 +692,13 @@ export class JobAgentService {
   }
   private async sendConfirmation(waId: string, job: Vacancy): Promise<void> {
     await this.whatsapp.sendText(waId, this.formatJob(job));
-    await this.whatsapp.sendJobButtons(
+    await this.whatsapp.sendJobList(
       waId,
-      'Elanı yoxlayın. Təsdiq etdikdən sonra admin moderasiyasına göndəriləcək.',
+      `Elanı yoxlayın. Təsdiq etdikdən sonra admin moderasiyasına göndəriləcək.\n${publicationLabel(job)}`,
       [
         { id: `job:confirm:${job.id}`, title: '✅ Təsdiq et' },
+        { id: 'job:schedule:later', title: '📅 Tarixə planla' },
+        { id: 'job:schedule:now', title: 'Dərhal yayımla' },
         { id: 'job:employer:new', title: 'Yenidən hazırla' },
         MENU,
       ],
@@ -685,7 +725,7 @@ export class JobAgentService {
     await this.setState(profileId, 'ready');
     await this.telegram.sendMessage(
       `📋 Yeni vakansiya moderasiyaya göndərildi\n${formatTelegramJob(job)}`,
-      moderationButtons(job.id),
+      moderationButtons(job.id, job.revision),
     );
     await this.whatsapp.sendText(
       waId,
@@ -800,7 +840,10 @@ export class JobAgentService {
         `Biznes təsdiqi: ${employer?.registration_status ?? 'draft'}`,
       ].join('\n'),
     );
-    await this.sendMainMenu(waId);
+    await this.whatsapp.sendJobButtons(waId, 'Profilinizi idarə edin.', [
+      { id: 'job:profile:delete', title: '🗑️ Profili sil' },
+      MENU,
+    ]);
   }
   private salary(job: Vacancy): string {
     return job.salary_min != null || job.salary_max != null

@@ -89,6 +89,10 @@ export function fixture() {
           spec.value = value;
           return q;
         },
+        match(value) {
+          for (const [k, v] of Object.entries(value)) q.eq(k, v);
+          return q;
+        },
         eq(k, v) {
           spec.filters.push((row) => (k === 'salary_currency' ? (row[k] ?? 'AZN') : row[k]) === v);
           return q;

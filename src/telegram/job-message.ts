@@ -1,12 +1,19 @@
+import { publicationLabel } from '../job-agent/vacancy-lifecycle';
 import { mapsLink } from '../job-agent/vacancy-validation';
 import { InlineKeyboard } from './telegram.types';
 
-export function moderationButtons(jobId: number): InlineKeyboard {
+export function moderationButtons(jobId: number, revision?: number): InlineKeyboard {
   return {
     inline_keyboard: [
       [
-        { text: '✅ Təsdiq et', callback_data: `tg:approve:${jobId}` },
-        { text: '❌ Rədd et', callback_data: `tg:reject:${jobId}` },
+        {
+          text: '✅ Təsdiq et',
+          callback_data: `tg:approve:${jobId}${revision ? ':' + revision : ''}`,
+        },
+        {
+          text: '❌ Rədd et',
+          callback_data: `tg:reject:${jobId}${revision ? ':' + revision : ''}`,
+        },
       ],
     ],
   };
@@ -25,6 +32,7 @@ export function formatTelegramJob(job: Record<string, any>): string {
     `📍 ${String(job.location_name ?? '-').slice(0, 250)}`,
     ...(mapsLink(job) ? [`🗺️ Xəritədə bax: ${mapsLink(job)}`] : []),
     `💼 ${job.work_mode ?? '-'}`,
+    publicationLabel(job),
     `💰 ${salary}`,
     `📝 ${String(job.description ?? '-').slice(0, 1500)}`,
     `☎️ ${String(job.contact_phone ?? '-').slice(0, 25)}`,
