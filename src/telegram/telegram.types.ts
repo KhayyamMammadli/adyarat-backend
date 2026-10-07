@@ -12,7 +12,13 @@ export type ReplyMarkup =
     };
 export type TelegramMessage = {
   message_id?: number;
-  from?: { id?: number; is_bot?: boolean };
+  from?: {
+    id?: number;
+    is_bot?: boolean;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+  };
   chat?: { id?: number; type?: string };
   text?: string;
   location?: { latitude: number; longitude: number };
