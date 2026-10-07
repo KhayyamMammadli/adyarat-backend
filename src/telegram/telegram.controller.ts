@@ -50,13 +50,7 @@ export class TelegramController {
     const chatId = message?.chat?.id;
     const userId = user?.id;
     const configuredChat = this.config.get<string>('TELEGRAM_ADMIN_CHAT_ID')?.trim();
-    if (
-      !Number.isSafeInteger(chatId) ||
-      !Number.isSafeInteger(userId) ||
-      !userId ||
-      user?.is_bot ||
-      String(chatId) !== configuredChat
-    )
+    if (!Number.isSafeInteger(chatId) || !Number.isSafeInteger(userId) || !userId || user?.is_bot)
       return undefined;
     const allowlist = this.config
       .get<string>('TELEGRAM_ADMIN_USER_IDS')
@@ -65,9 +59,10 @@ export class TelegramController {
       .filter(Boolean);
     // A private chat ID is the admin's user ID. Groups must explicitly allow user IDs.
     const privateChat = chatId! > 0 && (!message?.chat?.type || message.chat.type === 'private');
-    const allowed = allowlist?.length
-      ? allowlist.includes(String(userId))
-      : privateChat && userId === chatId;
+    const listed = allowlist?.includes(String(userId)) ?? false;
+    const allowed = privateChat
+      ? userId === chatId && (listed || String(chatId) === configuredChat)
+      : String(chatId) === configuredChat && listed;
     return allowed ? { chatId: chatId!, userId, group: !privateChat } : undefined;
   }
 }
