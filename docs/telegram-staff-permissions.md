@@ -15,3 +15,13 @@ A new service-role-only public.telegram_staff table stores roles, permissions, a
 Apply supabase/migrations/20261007102134_telegram_staff_permissions.sql before deploying this change. Missing ACL table fails closed for non-owner access. The superadmin retains private access independently of ACL data. No token changes are required. New moderation notifications still go to the existing configured Telegram chat; other staff can open their permitted pending queues in their own chats.
 
 Validation: npm run typecheck, npm test (includes build). SQL tests use PGlite to verify schema constraints, Asim seed, service-role access and client denial. Tests cover multi-selection, deselection, Save, restart, stale buttons, revocation, role boundaries, restricted menus/callbacks/commands, and permission removal during unfinished flows.
+
+## Moderator invitation links
+
+Admin panel → Moderatorlar / heyət → Moderator dəvət et → select multiple permission checkboxes → Dəvət linki yarat. Share the link with the intended person. Telegram supplies their numeric identity when they open the link and press Start; no ID lookup is needed. The creator receives the claimed name/username and selected permissions with approve/reject buttons. Both admin and superadmin can review pending invitations. Only approval inserts a moderator ACL entry; clicking the link grants no access. The approval message installs the Admin paneli launcher.
+
+Links use 192-bit random base64url tokens and expire after 24 hours. Only SHA-256 hashes are stored. First claim wins atomically, with same-user Start replays producing no duplicate admin notification. Forwarded links still need explicit human identity review. Existing staff cannot be overwritten by invitations. A revoked inviter cannot grant access. Approval and ACL insertion are one PostgreSQL transaction; repeated approval cannot duplicate staff. Revoked, rejected or expired links do not work.
+
+Gözləyən dəvətlər recovers pending reviews after a missed Telegram notification and supports pagination. Dəvəti ləğv et invalidates unused or claimed links. ID-based staff creation/editing remains available. The bot username is obtained from getMe using the existing token; no new Render variables or tokens are required.
+
+Migration: 20261007105221_telegram_moderator_invitations.sql adds a private-to-clients telegram_staff_invites table and two service-role-only SECURITY INVOKER RPCs for atomic claim and review. Apply before deploy. No WhatsApp users or vacancies are modified.

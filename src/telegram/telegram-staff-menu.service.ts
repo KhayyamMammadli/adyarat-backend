@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { TelegramInvitationService } from './telegram-invitation.service';
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { TelegramStaffService } from './telegram-staff.service';
@@ -17,6 +19,7 @@ export class TelegramStaffMenuService {
     private readonly staff: TelegramStaffService,
     private readonly states: TelegramAdminStateService,
     private readonly telegram: TelegramTransport,
+    @Optional() private readonly invitations?: TelegramInvitationService,
   ) {}
   async handle(actor: AdminActor, update: TelegramUpdate): Promise<boolean> {
     const key = `${actor.chatId}:${actor.userId}`;
@@ -33,7 +36,7 @@ export class TelegramStaffMenuService {
     // Vacancy callbacks cannot belong to a staff draft; avoid a second state
     // lookup on the busiest listing/moderation paths.
     const callback = update.callback_query?.data;
-    if (callback && !callback.startsWith('staff:')) return false;
+    if (callback && !callback.startsWith('staff:') && !callback.startsWith('invite:')) return false;
     const access = await this.staff.resolve(actor.userId);
     if (!access) return true;
     actor = { ...actor, ...access };
@@ -46,7 +49,12 @@ export class TelegramStaffMenuService {
     )
       return false;
     const state = await this.states.load(actor);
-    if (!action.startsWith('staff:') && state.session.kind !== 'staff') return false;
+    if (
+      !action.startsWith('staff:') &&
+      !action.startsWith('invite:') &&
+      state.session.kind !== 'staff'
+    )
+      return false;
     if (!canManage(actor)) {
       await this.telegram.sendTo(actor.chatId, 'Heyəti idarə etməyə icazəniz yoxdur.');
       return true;
@@ -62,6 +70,62 @@ export class TelegramStaffMenuService {
         ],
       ],
     };
+    if (this.invitations && (action === 'invite:list' || /^invite:list:\d{1,6}$/.test(action))) {
+      const page = action === 'invite:list' ? 0 : Number(action.split(':')[2]);
+      const rows = await this.invitations.list(actor, page);
+      for (const invite of rows.slice(0, 5))
+        await this.telegram.sendTo(
+          actor.chatId,
+          this.invitations.summary(invite),
+          this.invitations.reviewButtons(invite),
+        );
+      const buttons = [];
+      if (page) buttons.push({ text: '⬅️ Geri', callback_data: `invite:list:${page - 1}` });
+      if (rows.length > 5)
+        buttons.push({ text: 'Növbəti ➡️', callback_data: `invite:list:${page + 1}` });
+      await this.telegram.sendTo(
+        actor.chatId,
+        rows.length ? 'Gözləyən dəvətlər' : 'Gözləyən dəvət yoxdur.',
+        { inline_keyboard: [...(buttons.length ? [buttons] : []), ...home.inline_keyboard] },
+      );
+      await this.states.save(state, idle);
+      return true;
+    }
+    const decision =
+      /^invite:(approve|reject|revoke):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(
+        action,
+      );
+    if (decision && this.invitations) {
+      const changed = await this.invitations.finish(
+        actor,
+        decision[2],
+        decision[1] as 'approve' | 'reject' | 'revoke',
+      );
+      await this.states.save(state, idle);
+      await this.telegram.sendTo(
+        actor.chatId,
+        changed
+          ? decision[1] === 'approve'
+            ? '✅ Moderator təsdiqləndi.'
+            : 'Dəvət bağlandı.'
+          : 'Dəvət artıq bağlanıb, şəxs heyətdədir, yaradıcı icazəsini itirib və ya vaxtı bitib.',
+        home,
+      );
+      return true;
+    }
+    if (action === 'staff:invite' && this.invitations) {
+      const session: AdminSession = {
+        kind: 'staff',
+        step: 'permissions',
+        nonce: randomBytes(6).toString('hex'),
+        draft: { role: 'moderator', invitation: true, permissions: [] },
+        lastUpdateId: id!,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      };
+      await this.states.save(state, session);
+      await this.show(actor, session);
+      return true;
+    }
     if (action === 'staff:home' || /^staff:list:\d{1,6}$/.test(action)) {
       const page = action === 'staff:home' ? 0 : Number(action.split(':')[2]);
       const rows = await this.staff.list(page);
@@ -74,7 +138,13 @@ export class TelegramStaffMenuService {
             callback_data: `staff:edit:${row.user_id}`,
           },
         ]);
-      buttons.push([{ text: '➕ Moderator əlavə et', callback_data: 'staff:add:moderator' }]);
+      if (this.invitations) {
+        buttons.push([{ text: '🔗 Moderator dəvət et', callback_data: 'staff:invite' }]);
+        buttons.push([{ text: '⏳ Gözləyən dəvətlər', callback_data: 'invite:list' }]);
+      }
+      buttons.push([
+        { text: '➕ ID ilə moderator əlavə et', callback_data: 'staff:add:moderator' },
+      ]);
       if (actor.role === 'superadmin')
         buttons.push([{ text: '➕ Admin əlavə et', callback_data: 'staff:add:admin' }]);
       const nav = [];
@@ -213,7 +283,21 @@ export class TelegramStaffMenuService {
       await this.show(actor, session);
       return true;
     }
-    if (choice === 'save' || choice === 'revoke') {
+    if (choice === 'link' && session.draft?.invitation && this.invitations) {
+      if (!session.draft.permissions?.length) {
+        await this.telegram.sendTo(actor.chatId, 'Ən azı bir icazə seçin.');
+        return true;
+      }
+      const result = await this.invitations.create(actor, session.draft.permissions);
+      await this.states.save(state, idle);
+      await this.telegram.sendTo(
+        actor.chatId,
+        `🔗 Linki dəvət etdiyiniz şəxsə göndərin:\n${result.url}\n\n24 saat etibarlıdır. Şəxs Start basdıqdan sonra onun məlumatlarına baxıb təsdiqləyin.`,
+        this.invitations.reviewButtons(result.invite),
+      );
+      return true;
+    }
+    if ((choice === 'save' || choice === 'revoke') && !session.draft?.invitation) {
       try {
         await this.staff.save(
           actor,
@@ -252,14 +336,22 @@ export class TelegramStaffMenuService {
             },
           ])
         : [];
-    buttons.push([
-      { text: '💾 Yadda saxla / aktiv et', callback_data: `staff:${session.nonce}:save` },
-    ]);
-    buttons.push([{ text: '🚫 İcazəni ləğv et', callback_data: `staff:${session.nonce}:revoke` }]);
+    if (session.draft?.invitation)
+      buttons.push([
+        { text: '🔗 Dəvət linki yarat', callback_data: `staff:${session.nonce}:link` },
+      ]);
+    else {
+      buttons.push([
+        { text: '💾 Yadda saxla / aktiv et', callback_data: `staff:${session.nonce}:save` },
+      ]);
+      buttons.push([
+        { text: '🚫 İcazəni ləğv et', callback_data: `staff:${session.nonce}:revoke` },
+      ]);
+    }
     buttons.push([{ text: 'Ləğv et / geri', callback_data: 'staff:home' }]);
     await this.telegram.sendTo(
       actor.chatId,
-      `👤 ${session.draft?.userId} • ${session.draft?.role}\nBir neçə icazə seçə bilərsiniz. Seçimlər yalnız Yadda saxla basıldıqda tətbiq edilir.`,
+      `👤 ${session.draft?.invitation ? 'Yeni dəvət' : session.draft?.userId} • ${session.draft?.role}\nBir neçə icazə seçə bilərsiniz. Seçimlər təsdiqlənənədək tətbiq edilmir.`,
       { inline_keyboard: buttons },
     );
   }

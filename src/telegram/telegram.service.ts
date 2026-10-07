@@ -67,6 +67,17 @@ export class TelegramAdminService {
     await this.request('sendPhoto', { chat_id: target, photo, caption, reply_markup: replyMarkup });
   }
 
+  private username?: string;
+  async botUsername(): Promise<string> {
+    if (!this.username) {
+      const bot = await this.request<{ username?: string }>('getMe', {});
+      if (!bot.username || !/^[A-Za-z0-9_]{5,32}$/.test(bot.username))
+        throw new Error('Telegram bot username is unavailable');
+      this.username = bot.username;
+    }
+    return this.username;
+  }
+
   async answerCallback(id: string, text?: string): Promise<void> {
     await this.request('answerCallbackQuery', {
       callback_query_id: id,

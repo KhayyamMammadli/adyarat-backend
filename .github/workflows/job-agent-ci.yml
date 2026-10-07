@@ -15,6 +15,7 @@ on:
       - feat/telegram-persistent-admin-menu
       - feat/telegram-multiple-admins
       - feat/telegram-staff-permissions
+      - feat/telegram-moderator-invitations
   pull_request:
 
 jobs:

@@ -1,3 +1,4 @@
+import { TelegramInvitationService } from './telegram-invitation.service';
 import { Optional } from '@nestjs/common';
 import { TelegramStaffService } from './telegram-staff.service';
 import { TelegramStaffMenuService } from './telegram-staff-menu.service';
@@ -17,6 +18,7 @@ export class TelegramController {
     private readonly telegram: TelegramTransport,
     @Optional() private readonly staff?: TelegramStaffService,
     @Optional() private readonly staffMenu?: TelegramStaffMenuService,
+    @Optional() private readonly invitations?: TelegramInvitationService,
   ) {}
 
   @Post('webhook')
@@ -27,6 +29,8 @@ export class TelegramController {
     const expected = this.config.get<string>('TELEGRAM_WEBHOOK_SECRET')?.trim();
     if (expected ? secretToken !== expected : this.config.get<string>('NODE_ENV') === 'production')
       return { ok: true };
+    // Narrow public onboarding route; claiming a link never grants staff access.
+    if (this.invitations && (await this.invitations.handleStart(update))) return { ok: true };
     let actor: AdminActor | undefined;
     try {
       actor = await this.authorize(update);
