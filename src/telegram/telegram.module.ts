@@ -1,3 +1,4 @@
+import { TelegramVacancyManagementService } from './telegram-vacancy-management.service';
 import { TelegramInvitationService } from './telegram-invitation.service';
 import { TelegramStaffService } from './telegram-staff.service';
 import { TelegramStaffMenuService } from './telegram-staff-menu.service';
@@ -13,6 +14,7 @@ import { TelegramController } from './telegram.controller';
   imports: [JobAgentModule, TelegramTransportModule],
   controllers: [TelegramController],
   providers: [
+    TelegramVacancyManagementService,
     TelegramInvitationService,
     TelegramStaffService,
     TelegramStaffMenuService,

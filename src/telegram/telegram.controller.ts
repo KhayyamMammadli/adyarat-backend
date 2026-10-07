@@ -1,3 +1,4 @@
+import { TelegramVacancyManagementService } from './telegram-vacancy-management.service';
 import { TelegramInvitationService } from './telegram-invitation.service';
 import { Optional } from '@nestjs/common';
 import { TelegramStaffService } from './telegram-staff.service';
@@ -19,6 +20,7 @@ export class TelegramController {
     @Optional() private readonly staff?: TelegramStaffService,
     @Optional() private readonly staffMenu?: TelegramStaffMenuService,
     @Optional() private readonly invitations?: TelegramInvitationService,
+    @Optional() private readonly vacancyManagement?: TelegramVacancyManagementService,
   ) {}
 
   @Post('webhook')
@@ -54,6 +56,8 @@ export class TelegramController {
       } catch {}
     }
     if (this.staffMenu && (await this.staffMenu.handle(actor, update))) return { ok: true };
+    if (this.vacancyManagement && (await this.vacancyManagement.handle(actor, update)))
+      return { ok: true };
     if (await this.jobs.handle(actor, update)) return { ok: true };
     if (update.message?.text && (!this.staff || actor.role === 'superadmin'))
       await this.legacyAdmin.handleCommand(update.message.text);

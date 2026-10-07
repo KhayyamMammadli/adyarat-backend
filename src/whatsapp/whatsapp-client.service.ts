@@ -147,7 +147,7 @@ export class WhatsAppClientService {
       `${displayName ? `Salam, ${displayName.slice(0, 100)}! 👋` : 'Salam! 👋'}\nVakansiya xidmətinə xoş gəlmisiniz. Aşağıdan seçim edin.`,
       [
         ...(role === 'employer'
-          ? [{ id: 'job:employer:new', title: '➕ Vakansiya yerləşdir' }]
+          ? [{ id: 'job:employer:new', title: '➕ Vakansiya yerləşdir' }, { id: 'job:mine', title: '📋 Elanlarım' }]
           : role === 'seeker'
             ? []
             : [

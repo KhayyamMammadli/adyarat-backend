@@ -3,6 +3,7 @@ export const STAFF_PERMISSIONS = {
   approve: '✅ Vakansiya təsdiqlə',
   reject: '❌ Vakansiya rədd et',
   create: '➕ Vakansiya yarat',
+  edit: '✏️ Öz elanlarını redaktə et',
   businesses: '🏢 Biznes profillərini yoxla',
   pending: '⏳ Gözləyən elanları gör',
   statistics: '📊 Statistikaya bax',
@@ -27,6 +28,7 @@ export function requiredPermission(action = '', text = '', kind = ''): StaffPerm
   if (action === 'tg:businesses' || action.startsWith('biz:') || action.startsWith('tg:business:'))
     return 'businesses';
   if (action === 'tg:new') return 'create';
+  if (action.startsWith('editjob:')) return 'edit';
   // Home/cancel always remains accessible even after permission revocation.
   if (
     action === 'tg:admin' ||
@@ -35,6 +37,7 @@ export function requiredPermission(action = '', text = '', kind = ''): StaffPerm
     text === '🏠 Admin paneli'
   )
     return undefined;
+  if (kind === 'edit') return 'edit';
   if (kind === 'create') return 'create';
   if (kind === 'reject') return 'reject';
   if (kind === 'business_verify') return 'businesses';
