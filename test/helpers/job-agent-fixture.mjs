@@ -89,6 +89,10 @@ export function fixture() {
           spec.value = value;
           return q;
         },
+        delete() {
+          spec.op = 'delete';
+          return q;
+        },
         match(value) {
           for (const [k, v] of Object.entries(value)) q.eq(k, v);
           return q;
@@ -190,7 +194,8 @@ export function fixture() {
                 failure = undefined;
                 return { data: null, error };
               }
-              let rows = tables[table];
+              const allRows = tables[table];
+              let rows = allRows;
               if (spec.op === 'upsert' || spec.op === 'insert') {
                 const keys = (
                   spec.options?.onConflict ??
@@ -226,6 +231,8 @@ export function fixture() {
               } else {
                 rows = rows.filter((row) => spec.filters.every((filter) => filter(row)));
                 if (spec.op === 'update') rows.forEach((row) => Object.assign(row, spec.value));
+                if (spec.op === 'delete')
+                  tables[table] = allRows.filter((row) => !rows.includes(row));
               }
               for (const [key, asc] of [...spec.orders].reverse())
                 rows.sort((a, b) =>
