@@ -227,6 +227,15 @@ test('WhatsApp vacancy deletion asks for confirmation, keeps on No, and reports 
   token = p.browse_filters.management.token;
   await f.action(`job:manage:${token}:more`);
   await f.action(`job:manage:${token}:delete`);
+  f.tables.jobs[0].revision = 2;
+  await f.action(`job:manage:${token}:confirm_delete`);
+  assert.equal(f.tables.jobs.length, 1);
+  assert.match(last(f, 'sendText').args[1], /Elan tapılmadı və ya dəyişib/);
+
+  await f.action('job:edit:1');
+  token = p.browse_filters.management.token;
+  await f.action(`job:manage:${token}:more`);
+  await f.action(`job:manage:${token}:delete`);
   await f.action(`job:manage:${token}:confirm_delete`);
   assert.equal(f.tables.jobs.length, 0);
   assert.match(last(f, 'sendText').args[1], /Elanınız uğurla silindi/);
