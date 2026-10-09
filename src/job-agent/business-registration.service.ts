@@ -57,12 +57,13 @@ export function businessComplete(e: any, p: any, requireEvidence = true): boolea
     normalizePhone(p?.contact_phone ?? ''),
   );
 }
-export function businessButtons(e: any) {
+export function businessButtons(e: any, rejected = false) {
+  const prefix = rejected ? 'bizr' : 'biz';
   return {
     inline_keyboard: [
       [
-        { text: '✅ Təsdiq et', callback_data: `biz:a:${e.profile_id}:${e.registration_token}` },
-        { text: '❌ Rədd et', callback_data: `biz:r:${e.profile_id}:${e.registration_token}` },
+        { text: '✅ Təsdiq et', callback_data: `${prefix}:a:${e.profile_id}:${e.registration_token}` },
+        { text: '❌ Rədd et', callback_data: `${prefix}:r:${e.profile_id}:${e.registration_token}` },
       ],
     ],
   };
@@ -459,10 +460,10 @@ export class BusinessRegistrationService {
   private async summary(e: any, p: any): Promise<string> {
     return `🏢 ${BUSINESS_TYPES[e.business_type] ?? '-'}: ${e.company_name}\nVÖEN: ${e.voen}\nRəsmi ad: ${e.legal_name ?? 'Admin yoxlamasını gözləyir'}\nVÖEN yoxlaması: ${voenEvidence(e) ? e.voen_verification_method : 'YOXLANMAYIB — admin rəsmi bazada yoxlamalıdır'}\n👤 ${e.contact_name}\n📝 ${e.business_description}\n📍 ${e.business_address}\n📧 ${p.contact_email}\n📱 ${p.contact_phone}`;
   }
-  async notify(e: any, p?: any, chatId?: number): Promise<void> {
+  async notify(e: any, p?: any, chatId?: number, rejected = false): Promise<void> {
     p ??= await this.profile(e.profile_id);
     const text = await this.summary(e, p),
-      buttons = businessButtons(e);
+      buttons = businessButtons(e, rejected);
     // Short-lived private URL; recovery panel generates a fresh URL every time.
     try {
       const { data, error } = await this.supabase.client.storage
@@ -496,16 +497,33 @@ export class BusinessRegistrationService {
     );
     for (const e of data ?? []) await this.notify(e, undefined, chatId);
   }
+  async rejected(chatId: number): Promise<void> {
+    const { data, error } = await this.supabase.client
+      .from('employer_profiles')
+      .select('*')
+      .eq('registration_status', 'rejected')
+      .order('reviewed_at', { ascending: false })
+      .limit(10);
+    if (error) throw error;
+    await this.telegram.sendTo(
+      chatId,
+      data?.length
+        ? '❌ Rədd edilmiş biznes profilləri (ilk 10). Yenidən yoxlayıb qərar verə bilərsiniz.'
+        : 'Rədd edilmiş biznes profili yoxdur.',
+    );
+    for (const e of data ?? []) await this.notify(e, undefined, chatId, true);
+  }
   async verifyManually(
     id: string,
     token: string,
     legalName: string,
     adminId: number,
+    expectedStatus: 'pending' | 'rejected' = 'pending',
   ): Promise<boolean> {
     const e = await this.employer(id),
       p = await this.profile(id);
     if (
-      e?.registration_status !== 'pending' ||
+      e?.registration_status !== expectedStatus ||
       e.registration_token !== token ||
       e.voen_verification_method !== 'pending_admin' ||
       !businessComplete(e, p, false) ||
@@ -523,7 +541,7 @@ export class BusinessRegistrationService {
         registry_reference: 'https://new.e-taxes.gov.az/etaxes/services/taxpayer-info',
       })
       .eq('profile_id', id)
-      .eq('registration_status', 'pending')
+      .eq('registration_status', expectedStatus)
       .eq('registration_token', token)
       .eq('voen_verification_method', 'pending_admin')
       .select('profile_id')
@@ -531,11 +549,17 @@ export class BusinessRegistrationService {
     if (error) throw error;
     return Boolean(data);
   }
-  async moderate(id: string, token: string, approved: boolean, adminId: number): Promise<boolean> {
+  async moderate(
+    id: string,
+    token: string,
+    approved: boolean,
+    adminId: number,
+    expectedStatus: 'pending' | 'rejected' = 'pending',
+  ): Promise<boolean> {
     const e = await this.employer(id),
       p = await this.profile(id);
     if (
-      e?.registration_status !== 'pending' ||
+      e?.registration_status !== expectedStatus ||
       e.registration_token !== token ||
       !businessComplete(e, p, approved)
     )
@@ -544,6 +568,7 @@ export class BusinessRegistrationService {
       .from('employer_profiles')
       .update({
         registration_status: approved ? 'approved' : 'rejected',
+        registration_token: approved ? token : randomBytes(6).toString('hex'),
         verified: approved,
         rejection_reason: approved
           ? null
@@ -552,7 +577,7 @@ export class BusinessRegistrationService {
         reviewed_at: new Date().toISOString(),
       })
       .eq('profile_id', id)
-      .eq('registration_status', 'pending')
+      .eq('registration_status', expectedStatus)
       .eq('registration_token', token)
       .select('profile_id')
       .maybeSingle();
