@@ -104,7 +104,12 @@ export class VacancyManagementService {
     }
     if (!action.startsWith('job:manage:')) return false;
     const m = p.browse_filters?.management;
-    if (!m || !p.state.startsWith('job_edit') || !action.startsWith(`job:manage:${m.token}:`))
+    if (
+      p.role !== 'employer' ||
+      !m ||
+      !p.state.startsWith('job_edit') ||
+      !action.startsWith(`job:manage:${m.token}:`)
+    )
       return true;
     const choice = action.split(':').at(-1)!;
     if (choice === 'delete') {
