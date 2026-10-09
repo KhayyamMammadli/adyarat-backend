@@ -45,6 +45,6 @@ test('city button and minimum salary immediately return results and preserve pag
     .map((r) => Number(r.id.split(':').at(-1)));
   assert(!ids.includes(1) && !ids.includes(2));
   await f.action('job:menu');
-  assert.equal(last(f, 'sendJobMainMenu').args[2], 'seeker');
+  assert.equal(f.state(), 'browse_all');
   assert.deepEqual(f.tables.job_agent_profiles[0].browse_filters, {});
 });

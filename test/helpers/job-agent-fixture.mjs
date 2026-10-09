@@ -14,6 +14,7 @@ export function fixture() {
     job_seeker_preferences: [],
     employer_profiles: [],
     jobs: [],
+    vacancy_browse_events: [],
     job_categories: [],
     vacancy_notification_intents: [],
   };

@@ -10,7 +10,7 @@ import {
   filteredVacancies,
 } from './vacancy-query';
 import { moderationButtons, formatTelegramJob } from '../telegram/job-message';
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { WhatsAppClientService } from '../whatsapp/whatsapp-client.service';
 import { TelegramAdminService as TelegramNotifications } from '../telegram/telegram.service';
@@ -60,6 +60,7 @@ type Vacancy = {
 
 @Injectable()
 export class JobAgentService {
+  private readonly logger = new Logger(JobAgentService.name);
   constructor(
     private readonly supabase: SupabaseService,
     private readonly whatsapp: WhatsAppClientService,
@@ -71,8 +72,13 @@ export class JobAgentService {
   async welcome(waId: string, displayName?: string): Promise<void> {
     const profile = await this.upsertProfile(waId, displayName);
     await this.resetBrowse(profile.id);
-    await this.setState(profile.id, 'ready');
-    await this.sendMainMenu(waId, displayName);
+    if (profile.role === 'employer') {
+      await this.setState(profile.id, 'ready');
+      await this.sendMainMenu(waId, displayName);
+    } else {
+      await this.setState(profile.id, 'browse_all');
+      await this.sendJobs(waId, profile.id, 'all', 0);
+    }
   }
 
   async sendMainMenu(waId: string, displayName?: string): Promise<void> {
@@ -216,6 +222,7 @@ export class JobAgentService {
       if (error) throw error;
       if (data) {
         await this.whatsapp.sendText(waId, this.formatJob(data));
+        await this.recordBrowse(profile.id, 'detail', data.id, data.category_id);
         if (['office', 'hybrid'].includes(data.work_mode) && validCoordinates(data)) {
           try {
             await this.whatsapp.sendJobLocation(
@@ -263,7 +270,16 @@ export class JobAgentService {
     const raw = text.trim();
     const value = raw.toLocaleLowerCase('az');
     const profile = await this.upsertProfile(waId, displayName);
-    if (['salam', 'hello', 'hi', 'menu', 'menyu', 'start'].includes(value)) {
+    if (
+      ['menu', 'menyu', 'start'].includes(value) ||
+      ((!profile.state ||
+        ['welcome', 'ready', 'browse_all', 'browse_matches', 'job_manage_list'].includes(
+          profile.state,
+        )) &&
+        profile.role !== 'employer') ||
+      (['salam', 'hello', 'hi'].includes(value) &&
+        ['ready', 'employer_ready'].includes(profile.state))
+    ) {
       await this.welcome(waId, displayName);
       return true;
     }
@@ -794,13 +810,20 @@ export class JobAgentService {
         title: '🔍 Filterlə',
         description: 'Axtarış kriteriyaları',
       });
+    }
+    if (mode === 'all') {
       rows.push({
-        id: 'job:filter:clear',
-        title: '🧹 Filterləri təmizlə',
-        description: 'Bütün aktiv elanları göstər',
+        id: 'job:employer',
+        title: '🏢 İşçi axtarıram',
+        description: 'Biznes qeydiyyatı və elan yerləşdirmə',
+      });
+      rows.push({
+        id: 'job:seeker',
+        title: '🔔 Uyğun iş seçimlərim',
+        description: 'İstəyə bağlı profil və uyğun işlər',
       });
     }
-    rows.push({ ...MENU, description: 'Əsas menyuya qayıt' });
+    if (mode !== 'all') rows.push({ ...MENU, description: 'Əsas menyuya qayıt' });
     // WhatsApp list rows are hidden behind its picker. Show the current page in chat too.
     if (jobs.length) {
       await this.whatsapp.sendText(
@@ -821,6 +844,26 @@ export class JobAgentService {
         : 'Hazırda bu səhifədə aktiv vakansiya yoxdur.',
       rows,
     );
+    await this.recordBrowse(profileId, 'list', undefined, profile.data.browse_filters?.category_id);
+  }
+
+  private async recordBrowse(
+    profileId: string,
+    kind: 'list' | 'detail',
+    jobId?: number,
+    categoryId?: number,
+  ): Promise<void> {
+    try {
+      const result = await this.supabase.client.from('vacancy_browse_events').insert({
+        profile_id: profileId,
+        kind,
+        job_id: jobId ?? null,
+        category_id: categoryId ?? null,
+      });
+      if (result.error) throw result.error;
+    } catch {
+      this.logger.warn('Vacancy analytics unavailable; browsing remains available');
+    }
   }
   private async sendProfile(waId: string, profile: Profile): Promise<void> {
     const pref = await this.preference(profile.id);
@@ -833,7 +876,9 @@ export class JobAgentService {
         `İş: ${pref?.desired_title ?? 'Daxil edilməyib'}`,
         `Şəhər: ${pref?.location_name ?? 'Daxil edilməyib'}`,
         `İş rejimi: ${pref?.work_modes?.join(', ') || 'Daxil edilməyib'}`,
-        ...(profile.role === 'seeker' ? [`Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`] : []),
+        ...(profile.role === 'seeker'
+          ? [`Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`]
+          : []),
         `Biznes: ${employer?.company_name ?? 'Daxil edilməyib'}`,
         `VÖEN: ${employer?.voen ?? 'Daxil edilməyib'}`,
         `Email: ${profile.contact_email ?? employer?.email ?? 'Daxil edilməyib'}`,

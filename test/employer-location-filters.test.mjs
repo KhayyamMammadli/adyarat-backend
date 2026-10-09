@@ -222,7 +222,7 @@ test('all filters combine with pagination and clear/reset leaves saved seeker pr
   await f.action('job:menu');
   assert.deepEqual(f.tables.job_agent_profiles[0].browse_filters, {});
   await f.action('job:filter:mode:remote');
-  assert.equal(f.state(), 'ready');
+  assert.equal(f.state(), 'browse_all');
 });
 test('category picker paginates and rejects nonexistent/inactive categories', async () => {
   const f = fixture();

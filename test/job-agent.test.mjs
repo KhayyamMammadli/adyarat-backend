@@ -13,12 +13,14 @@ import {
   approvedEmployer,
 } from './helpers/job-agent-fixture.mjs';
 
-test('first message and bare menu numbers only open interactive main menu', async () => {
+test('first message and bare menu numbers show vacancies without seeker onboarding', async () => {
   const f = fixture();
   for (const text of ['Salam', '1', '2', '3']) await f.text(text);
   assert.equal(f.tables.job_agent_profiles[0].role, undefined);
   assert.equal(f.tables.jobs.length, 0);
-  assert.equal(f.sent.filter((s) => s.name === 'sendJobMainMenu').length, 4);
+  assert.equal(f.sent.filter((s) => s.name === 'sendJobMainMenu').length, 0);
+  assert.equal(f.state(), 'browse_all');
+  assert.equal(f.tables.vacancy_browse_events.length, 4);
 });
 test('seeker sequence persists preferences, including current-step numeric mode', async () => {
   const f = fixture();
@@ -196,7 +198,7 @@ test('incomplete profile and empty/out-of-range pages show navigable controls', 
   await f.action('job:all');
   assert.deepEqual(
     last(f, 'sendJobList').args[2].map((r) => r.id),
-    ['job:filter:menu', 'job:filter:clear', 'job:menu'],
+    ['job:filter:menu', 'job:employer', 'job:seeker'],
   );
   await f.action('job:page:all:9');
   assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:page:all:8'));

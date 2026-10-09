@@ -141,7 +141,17 @@ export class TelegramJobAdminService {
           `⏳ Gözləyən elanlar: ${s.pendingJobs}`,
           `👥 Bütün istifadəçilər: ${s.totalUsers}`,
           `🏢 İşəgötürən: ${s.employers}`,
-          `🔎 İş axtaran: ${s.seekers}`,
+          `🔎 Profilli iş axtaran: ${s.seekers}`,
+          `👀 Vakansiyalara baxan unikal istifadəçi: ${s.browsing.visitors}`,
+          `📱 Aktiv baxanlar — gün / həftə / ay: ${s.browsing.activeDay} / ${s.browsing.activeWeek} / ${s.browsing.activeMonth}`,
+          `📖 Elan detallarına baxış: ${s.browsing.detailViews}`,
+          ...s.browsing.topJobs.map(
+            (j: any) => `• #${j.job_id} ${j.title ?? 'Silinmiş elan'}: ${j.views} baxış`,
+          ),
+          ...s.browsing.topCategories.map(
+            (c: any) => `• ${c.name ?? 'Kateqoriya'}: ${c.selections} süzgəcli səhifə baxışı`,
+          ),
+          'Baxış statistikası yeni axının aktivləşməsindən hesablanır; işəgötürənlər daxil deyil.',
           `📅 Bu gün əlavə edilən: ${s.today}`,
           `🗓 Bu həftə əlavə edilən: ${s.thisWeek}`,
           'Bakı vaxtı • Həftə bazar ertəsindən başlayır.',

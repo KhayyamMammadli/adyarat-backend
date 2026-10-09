@@ -18,6 +18,18 @@ test('statistics use exact head counts, persisted roles, expiry and date bounds;
   const calls = [];
   let fail = false;
   const client = {
+    rpc: async () => ({
+      data: {
+        visitors: 3,
+        activeDay: 1,
+        activeWeek: 2,
+        activeMonth: 3,
+        detailViews: 4,
+        topJobs: [],
+        topCategories: [],
+      },
+      error: null,
+    }),
     from(table) {
       const ops = [];
       const q = {
