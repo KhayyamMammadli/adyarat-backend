@@ -2,6 +2,7 @@ import {
   BusinessRegistrationService,
   normalizePhone,
 } from '../../dist/job-agent/business-registration.service.js';
+import { JobAlertsService } from '../../dist/job-agent/job-alerts.service.js';
 import { JobAgentService } from '../../dist/job-agent/job-agent.service.js';
 import { distanceKm } from '../../dist/job-agent/vacancy-validation.js';
 import { JobAdminService } from '../../dist/job-agent/job-admin.service.js';
@@ -15,6 +16,7 @@ export function fixture() {
     employer_profiles: [],
     jobs: [],
     vacancy_browse_events: [],
+    job_alert_subscriptions: [],
     job_categories: [],
     vacancy_notification_intents: [],
   };
@@ -221,7 +223,7 @@ export function fixture() {
                   row = {
                     ...(table === 'job_agent_profiles'
                       ? { id: `p${rows.length + 1}`, state: 'welcome' }
-                      : table === 'jobs'
+                      : table === 'jobs' || table === 'job_alert_subscriptions'
                         ? { id: rows.length + 1, created_at: new Date().toISOString() }
                         : {}),
                     ...spec.value,
@@ -295,7 +297,14 @@ export function fixture() {
     }),
   };
   const businesses = new BusinessRegistrationService({ client }, whatsapp, telegram, registry);
-  const service = new JobAgentService({ client }, whatsapp, telegram, businesses);
+  const service = new JobAgentService(
+    { client },
+    whatsapp,
+    telegram,
+    businesses,
+    undefined,
+    new JobAlertsService({ client }, whatsapp),
+  );
   return {
     service,
     businesses,

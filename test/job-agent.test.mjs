@@ -198,7 +198,7 @@ test('incomplete profile and empty/out-of-range pages show navigable controls', 
   await f.action('job:all');
   assert.deepEqual(
     last(f, 'sendJobList').args[2].map((r) => r.id),
-    ['job:filter:menu', 'job:employer', 'job:seeker'],
+    ['job:filter:menu', 'job:employer', 'job:alerts'],
   );
   await f.action('job:page:all:9');
   assert.ok(last(f, 'sendJobList').args[2].some((r) => r.id === 'job:page:all:8'));
@@ -298,10 +298,10 @@ test('interactive client serializes job menu/buttons within Meta limits and pres
   await client.sendJobMainMenu('wa1');
   const menu = requests[0];
   assert.equal(menu.interactive.type, 'list');
-  assert.equal(menu.interactive.action.sections[0].rows.length, 5);
+  assert.equal(menu.interactive.action.sections[0].rows.length, 6);
   assert.deepEqual(
     menu.interactive.action.sections[0].rows.map((r) => r.id),
-    ['job:seeker', 'job:employer', 'job:all', 'job:profile', 'job:matches'],
+    ['job:seeker', 'job:employer', 'job:all', 'job:profile', 'job:alerts', 'job:matches'],
   );
   assert.doesNotMatch(JSON.stringify(menu), /AdYarat|reklam|video/);
   await client.sendJobButtons('AZ.123', 'Prompt', [{ id: 'job:menu', title: 'Əsas menyu' }]);

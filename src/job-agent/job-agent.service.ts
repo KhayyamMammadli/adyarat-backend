@@ -1,3 +1,4 @@
+import { JobAlertsService } from './job-alerts.service';
 import { VacancyManagementService } from './vacancy-management.service';
 import { parsePublicationTime, retentionDeadline, publicationLabel } from './vacancy-lifecycle';
 import { BusinessRegistrationService } from './business-registration.service';
@@ -67,6 +68,7 @@ export class JobAgentService {
     private readonly telegram: TelegramNotifications,
     private readonly businesses: BusinessRegistrationService,
     @Optional() private readonly management?: VacancyManagementService,
+    @Optional() private readonly alerts?: JobAlertsService,
   ) {}
 
   async welcome(waId: string, displayName?: string): Promise<void> {
@@ -105,6 +107,7 @@ export class JobAgentService {
       await this.welcome(waId, displayName);
       return;
     }
+    if (this.alerts && (await this.alerts.interactive(profile, action))) return;
     if (this.management && (await this.management.interactive(profile, action))) return;
     if (profile.state === 'employer_confirm' && action === 'job:schedule:later') {
       await this.setState(profile.id, 'employer_schedule');
@@ -270,6 +273,12 @@ export class JobAgentService {
     const raw = text.trim();
     const value = raw.toLocaleLowerCase('az');
     const profile = await this.upsertProfile(waId, displayName);
+    const alertJob = /^elan\s+(\d+)$/i.exec(raw);
+    if (alertJob && ['welcome', 'ready', 'browse_all', 'browse_matches'].includes(profile.state)) {
+      await this.setState(profile.id, 'browse_all');
+      await this.handleInteractive(waId, `job:detail:all:0:${alertJob[1]}`, displayName);
+      return true;
+    }
     if (
       ['menu', 'menyu', 'start'].includes(value) ||
       ((!profile.state ||
@@ -297,6 +306,7 @@ export class JobAgentService {
       await this.prompt(waId, `Cavab 1–${limit} simvol arasında olmalıdır.`);
       return true;
     }
+    if (this.alerts && (await this.alerts.text(profile, raw))) return true;
     if (this.management && (await this.management.text(profile, raw))) return true;
     if (profile.state === 'employer_schedule') {
       const job = await this.draft(profile.id);
@@ -818,9 +828,9 @@ export class JobAgentService {
         description: 'Biznes qeydiyyatı və elan yerləşdirmə',
       });
       rows.push({
-        id: 'job:seeker',
-        title: '🔔 Uyğun iş seçimlərim',
-        description: 'İstəyə bağlı profil və uyğun işlər',
+        id: 'job:alerts',
+        title: '🔔 Bildirişlərim',
+        description: 'Uyğun yeni işlər üçün seçim yarat',
       });
     }
     if (mode !== 'all') rows.push({ ...MENU, description: 'Əsas menyuya qayıt' });
