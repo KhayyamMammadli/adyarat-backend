@@ -111,7 +111,7 @@ export class VacancyManagementService {
       await this.state(p, 'job_edit_delete_confirm', m);
       await this.wa.sendJobButtons(
         p.wa_id,
-        `⚠️ #${m.jobId} — ${String(m.draft.title).slice(0, 120)}\\nElanı silməyə əminsiniz? Bu əməliyyatı geri qaytarmaq mümkün olmayacaq.`,
+        `⚠️ #${m.jobId} — ${String(m.draft.title).slice(0, 120)}\nElanı silməyə əminsiniz? Bu əməliyyatı geri qaytarmaq mümkün olmayacaq.`,
         [
           { id: `job:manage:${m.token}:confirm_delete`, title: 'Bəli, sil' },
           { id: `job:manage:${m.token}:cancel_delete`, title: 'Xeyr, saxla' },
