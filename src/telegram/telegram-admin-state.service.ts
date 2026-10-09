@@ -11,6 +11,7 @@ export type AdminSession = {
   jobRevision?: number;
   businessId?: string;
   registrationToken?: string;
+  businessStatus?: 'pending' | 'rejected';
   moderationMessageId?: number;
   promptMessageId?: number;
   lastUpdateId: number;
