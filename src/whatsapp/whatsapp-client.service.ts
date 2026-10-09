@@ -151,7 +151,7 @@ export class WhatsAppClientService {
           : role === 'seeker'
             ? []
             : [
-                { id: 'job:seeker', title: '🔎 İş axtarıram' },
+                { id: 'job:seeker', title: '🔔 Uyğun iş seçimlərim' },
                 { id: 'job:employer', title: '🏢 İşçi axtarıram' },
               ]),
         { id: 'job:all', title: '📋 Bütün vakansiyalar' },

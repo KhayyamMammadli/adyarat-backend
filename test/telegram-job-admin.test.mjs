@@ -190,9 +190,9 @@ test('/admin opens button panel and create flow previews all model fields before
   const f = adminFixture();
   await fillDraft(f);
   assert.ok(
-    f.messages.find((m) => m.markup?.inline_keyboard).markup.inline_keyboard.some((row) =>
-      row.some((b) => b.callback_data === 'tg:new'),
-    ),
+    f.messages
+      .find((m) => m.markup?.inline_keyboard)
+      .markup.inline_keyboard.some((row) => row.some((b) => b.callback_data === 'tg:new')),
   );
   assert.equal(f.session().step, 'confirm');
   assert.equal(f.tables.jobs.length, 0);
@@ -560,6 +560,15 @@ test('legacy persisted Telegram confirm without GPS returns to location step saf
 test('statistics panel and period pages use buttons and preserve unfinished admin draft; unauthorized callbacks blocked', async () => {
   const f = adminFixture();
   f.admin.statistics = async () => ({
+    browsing: {
+      visitors: 9,
+      activeDay: 3,
+      activeWeek: 7,
+      activeMonth: 9,
+      detailViews: 12,
+      topJobs: [],
+      topCategories: [],
+    },
     totalJobs: 21,
     activeJobs: 1,
     pendingJobs: 20,
@@ -604,7 +613,13 @@ test('plain greeting opens all admin features and installs a persistent command-
     .at(-1)
     .markup.inline_keyboard.flat()
     .map((b) => b.callback_data);
-  for (const action of ['tg:new', 'tg:pending', 'tg:businesses', 'tg:businesses:rejected', 'tg:stats'])
+  for (const action of [
+    'tg:new',
+    'tg:pending',
+    'tg:businesses',
+    'tg:businesses:rejected',
+    'tg:stats',
+  ])
     assert(actions.includes(action));
   await f.click('tg:new');
   assert.equal(f.session().kind, 'create');

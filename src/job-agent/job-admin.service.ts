@@ -39,7 +39,21 @@ export class JobAdminService {
         count(jobs().gte('created_at', day.from).lte('created_at', day.to)),
         count(jobs().gte('created_at', week.from).lte('created_at', week.to)),
       ]);
-    return { totalJobs, activeJobs, pendingJobs, totalUsers, employers, seekers, today, thisWeek };
+    const analytics = await this.supabase.client.rpc('vacancy_browse_statistics', {
+      p_now: now.toISOString(),
+    });
+    if (analytics.error) throw analytics.error;
+    return {
+      totalJobs,
+      activeJobs,
+      pendingJobs,
+      totalUsers,
+      employers,
+      seekers,
+      today,
+      thisWeek,
+      browsing: analytics.data,
+    };
   }
 
   async periodJobs(period: 'day' | 'week', page: number, now = new Date()): Promise<any[]> {
