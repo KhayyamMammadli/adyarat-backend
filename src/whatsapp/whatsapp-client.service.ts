@@ -62,6 +62,56 @@ export class WhatsAppClientService {
     return messageId;
   }
 
+  async sendJobAlertTemplate(to: string, job: any): Promise<string> {
+    const name = this.config.get<string>('JOB_ALERT_TEMPLATE_NAME');
+    const language = this.config.get<string>('JOB_ALERT_TEMPLATE_LANGUAGE');
+    if (!name || !language)
+      throw new Error('Approved job alert template is not configured');
+    const salary =
+      job.salary_min != null || job.salary_max != null
+        ? `${job.salary_min ?? ''}${job.salary_min != null && job.salary_max != null ? '–' : ''}${job.salary_max ?? ''} ${job.salary_currency ?? 'AZN'}`
+        : 'Maaş göstərilməyib';
+    const parameters = [
+      job.title,
+      job.company_name,
+      salary,
+      job.location_name,
+      job.contact_phone ??
+        job.contact_email ??
+        job.source_url ??
+        'Əlaqə üçün elana baxın',
+      String(job.id),
+    ].map((value) => ({
+      type: 'text',
+      text:
+        String(value ?? '-')
+          .replace(/[\r\n\t]+/g, ' ')
+          .slice(0, 500) || '-',
+    }));
+    const r = await this.graphRequest<MetaMessageResponse>(
+      `${this.requirePhoneNumberId()}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          ...this.recipientFields(to),
+          type: 'template',
+          template: {
+            name,
+            language: { code: language },
+            components: [{ type: 'body', parameters }],
+          },
+        }),
+      },
+    );
+    const id = r.messages?.[0]?.id;
+    if (!id) throw new ExternalServiceError('Meta did not return a message id', 502);
+    return id;
+  }
+
   async sendJobLocation(
     to: string,
     latitude: number,
@@ -156,6 +206,7 @@ export class WhatsAppClientService {
               ]),
         { id: 'job:all', title: '📋 Bütün vakansiyalar' },
         { id: 'job:profile', title: '👤 Profilim' },
+        { id: 'job:alerts', title: '🔔 Bildirişlərim' },
         { id: 'job:matches', title: 'Mənə uyğun vakansiyalar' },
         ...(role === 'seeker' ? [{ id: 'job:filters', title: '🔍 Filterlə' }] : []),
       ],

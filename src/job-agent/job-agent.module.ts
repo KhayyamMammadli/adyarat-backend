@@ -1,3 +1,5 @@
+import { JobAlertsService } from './job-alerts.service';
+import { JobAlertsWorker } from './job-alerts.worker';
 import { VacancyLifecycleWorker } from './vacancy-lifecycle.worker';
 import { VacancyManagementService } from './vacancy-management.service';
 import { BusinessRegistrationService } from './business-registration.service';
@@ -13,6 +15,8 @@ import { JobAgentWebhookService } from './job-agent-webhook.service';
 @Module({
   imports: [WhatsAppModule, TelegramTransportModule],
   providers: [
+    JobAlertsService,
+    JobAlertsWorker,
     VacancyLifecycleWorker,
     VacancyManagementService,
     BusinessRegistrationService,
