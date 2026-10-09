@@ -833,7 +833,7 @@ export class JobAgentService {
         `İş: ${pref?.desired_title ?? 'Daxil edilməyib'}`,
         `Şəhər: ${pref?.location_name ?? 'Daxil edilməyib'}`,
         `İş rejimi: ${pref?.work_modes?.join(', ') || 'Daxil edilməyib'}`,
-        `Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`,
+        ...(profile.role === 'seeker' ? [`Minimum maaş: ${pref?.salary_min ?? 'Daxil edilməyib'} AZN`] : []),
         `Biznes: ${employer?.company_name ?? 'Daxil edilməyib'}`,
         `VÖEN: ${employer?.voen ?? 'Daxil edilməyib'}`,
         `Email: ${profile.contact_email ?? employer?.email ?? 'Daxil edilməyib'}`,
