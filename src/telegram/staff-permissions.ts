@@ -25,7 +25,13 @@ export function requiredPermission(action = '', text = '', kind = ''): StaffPerm
   if (action === 'tg:pending' || ['/pending', '/vakansiyalar'].includes(command)) return 'pending';
   if (action.startsWith('tg:approve:') || command === '/approve') return 'approve';
   if (action.startsWith('tg:reject:') || command === '/reject') return 'reject';
-  if (action === 'tg:businesses' || action.startsWith('biz:') || action.startsWith('tg:business:'))
+  if (
+    action === 'tg:businesses' ||
+    action.startsWith('tg:businesses:') ||
+    action.startsWith('biz:') ||
+    action.startsWith('bizr:') ||
+    action.startsWith('tg:business:')
+  )
     return 'businesses';
   if (action === 'tg:new') return 'create';
   if (action.startsWith('editjob:')) return 'edit';
