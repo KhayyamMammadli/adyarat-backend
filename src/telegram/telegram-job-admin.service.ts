@@ -27,6 +27,7 @@ const PANEL: InlineKeyboard = {
     [{ text: '➕ Vakansiya əlavə et', callback_data: 'tg:new' }],
     [{ text: '✏️ Elanlarım / Redaktə', callback_data: 'editjob:list:0' }],
     [{ text: '🏢 Biznes profilləri', callback_data: 'tg:businesses' }],
+    [{ text: '❌ Rədd edilmiş bizneslər', callback_data: 'tg:businesses:rejected' }],
     [{ text: '📋 Gözləyən vakansiyalar', callback_data: 'tg:pending' }],
     [{ text: '📊 Statistika', callback_data: 'tg:stats' }],
   ],
@@ -199,21 +200,31 @@ export class TelegramJobAdminService {
       await this.states.save(state, { ...state.session, lastUpdateId: nextId });
       return true;
     }
-    const business = /^biz:([ar]):([0-9a-f-]{36}):([0-9a-f]{12})$/.exec(action ?? '');
+    if (action === 'tg:businesses:rejected') {
+      await this.businesses.rejected(actor.chatId);
+      await this.states.save(state, { ...state.session, lastUpdateId: nextId });
+      return true;
+    }
+    const business = /^biz(r?):([ar]):([0-9a-f-]{36}):([0-9a-f]{12})$/.exec(action ?? '');
     if (business) {
-      const e = await this.businesses.employer(business[2]);
+      const expectedStatus = business[1] === 'r' ? 'rejected' : 'pending';
+      const decision = business[2];
+      const businessId = business[3];
+      const registrationToken = business[4];
+      const e = await this.businesses.employer(businessId);
       if (
-        business[1] === 'a' &&
-        e?.registration_status === 'pending' &&
-        e.registration_token === business[3] &&
+        decision === 'a' &&
+        e?.registration_status === expectedStatus &&
+        e.registration_token === registrationToken &&
         !voenEvidence(e)
       ) {
         await this.promptAndSave(actor, state, {
           kind: 'business_verify',
           step: 'legal_name',
           nonce: nonce(),
-          businessId: business[2],
-          registrationToken: business[3],
+          businessId,
+          registrationToken,
+          businessStatus: expectedStatus,
           draft: { voen: e.voen },
           moderationMessageId: update.callback_query?.message?.message_id,
           lastUpdateId: nextId,
@@ -223,10 +234,11 @@ export class TelegramJobAdminService {
       }
       try {
         const changed = await this.businesses.moderate(
-          business[2],
-          business[3],
-          business[1] === 'a',
+          businessId,
+          registrationToken,
+          decision === 'a',
           actor.userId,
+          expectedStatus,
         );
         if (changed)
           await this.removeModerationButtons(
@@ -236,9 +248,11 @@ export class TelegramJobAdminService {
         await this.telegram.sendTo(
           actor.chatId,
           changed
-            ? business[1] === 'a'
+            ? decision === 'a'
               ? '✅ Biznes profili təsdiqləndi.'
-              : '❌ Biznes profili rədd edildi.'
+              : expectedStatus === 'rejected'
+                ? '❌ Biznes profili yenidən rədd edildi.'
+                : '❌ Biznes profili rədd edildi.'
             : 'Bu profil artıq yoxlanılıb və ya düymə köhnədir.',
           panel,
         );
@@ -352,6 +366,7 @@ export class TelegramJobAdminService {
             session.registrationToken!,
             String(session.draft?.legalName ?? ''),
             actor.userId,
+            session.businessStatus ?? 'pending',
           );
           const approved =
             verified &&
@@ -360,6 +375,7 @@ export class TelegramJobAdminService {
               session.registrationToken!,
               true,
               actor.userId,
+              session.businessStatus ?? 'pending',
             ));
           if (approved)
             await this.removeModerationButtons(actor.chatId, session.moderationMessageId);
