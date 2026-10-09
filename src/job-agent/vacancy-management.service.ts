@@ -104,9 +104,59 @@ export class VacancyManagementService {
     }
     if (!action.startsWith('job:manage:')) return false;
     const m = p.browse_filters?.management;
-    if (!m || !p.state.startsWith('job_edit') || !action.startsWith(`job:manage:${m.token}:`))
+    if (
+      p.role !== 'employer' ||
+      !m ||
+      !p.state.startsWith('job_edit') ||
+      !action.startsWith(`job:manage:${m.token}:`)
+    )
       return true;
     const choice = action.split(':').at(-1)!;
+    if (choice === 'delete') {
+      await this.state(p, 'job_edit_delete_confirm', m);
+      await this.wa.sendJobButtons(
+        p.wa_id,
+        `⚠️ #${m.jobId} — ${String(m.draft.title).slice(0, 120)}\nElanı silməyə əminsiniz? Bu əməliyyatı geri qaytarmaq mümkün olmayacaq.`,
+        [
+          { id: `job:manage:${m.token}:confirm_delete`, title: 'Bəli, sil' },
+          { id: `job:manage:${m.token}:cancel_delete`, title: 'Xeyr, saxla' },
+        ],
+      );
+      return true;
+    }
+    if (choice === 'cancel_delete') {
+      if (p.state !== 'job_edit_delete_confirm') return true;
+      await this.state(p, 'job_edit_menu', m);
+      await this.wa.sendText(p.wa_id, 'Silmə ləğv edildi. Elanınız saxlanıldı.');
+      await this.menu(p, m, true);
+      return true;
+    }
+    if (choice === 'confirm_delete') {
+      if (p.state !== 'job_edit_delete_confirm') return true;
+      const current = await this.owned(p, m.jobId);
+      if (!current || Number(current.revision ?? 1) !== Number(m.revision)) {
+        await this.state(p, 'ready');
+        await this.wa.sendText(p.wa_id, 'Elan tapılmadı və ya dəyişib. Silinmədi; siyahını yeniləyin.');
+        await this.wa.sendJobMainMenu(p.wa_id, undefined, 'employer');
+        return true;
+      }
+      const deleted = await this.db.client
+        .from('jobs')
+        .delete()
+        .eq('id', m.jobId)
+        .contains('metadata', { employer_profile_id: p.id })
+        .eq('revision', m.revision)
+        .select('id')
+        .maybeSingle();
+      if (deleted.error) throw deleted.error;
+      await this.state(p, 'ready');
+      await this.wa.sendText(
+        p.wa_id,
+        deleted.data ? '✅ Elanınız uğurla silindi.' : 'Elan artıq mövcud deyil və ya dəyişib. Silinmədi.',
+      );
+      await this.wa.sendJobMainMenu(p.wa_id, undefined, 'employer');
+      return true;
+    }
     if (choice === 'more' || choice === 'back') {
       await this.menu(p, m, choice === 'more');
       return true;
@@ -291,6 +341,7 @@ export class VacancyManagementService {
     else
       rows.push(
         { id: `job:manage:${m.token}:save`, title: '💾 Düzəlişi göndər' },
+        { id: `job:manage:${m.token}:delete`, title: '🗑️ Elanı sil' },
         { id: `job:manage:${m.token}:back`, title: 'Sahələrə qayıt' },
         HOME,
       );

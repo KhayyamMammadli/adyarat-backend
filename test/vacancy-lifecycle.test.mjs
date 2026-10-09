@@ -196,6 +196,50 @@ test('WhatsApp own-vacancy editing drafts are isolated, paginated, validated and
   assert.equal(f.state(), 'ready');
   assert.equal(p.browse_filters.management, undefined);
 });
+test('WhatsApp vacancy deletion asks for confirmation, keeps on No, and reports success on Yes', async () => {
+  const f = managed();
+  await approvedEmployer(f);
+  const p = f.tables.job_agent_profiles[0];
+  seedJobs(f, 1);
+  Object.assign(f.tables.jobs[0], {
+    title: 'Frontend developer',
+    revision: 1,
+    status: 'active',
+    metadata: { employer_profile_id: p.id },
+  });
+
+  await f.action('job:edit:1');
+  let token = p.browse_filters.management.token;
+  await f.action(`job:manage:${token}:more`);
+  assert.ok(last(f, 'sendJobList').args[2].some((row) => row.id === `job:manage:${token}:delete`));
+  await f.action(`job:manage:${token}:delete`);
+  assert.equal(f.tables.jobs.length, 1);
+  assert.match(last(f, 'sendJobButtons').args[1], /Elanı silməyə əminsiniz/);
+  const choices = last(f, 'sendJobButtons').args[2].map((button) => button.id);
+  assert.ok(choices.includes(`job:manage:${token}:confirm_delete`));
+  assert.ok(choices.includes(`job:manage:${token}:cancel_delete`));
+
+  await f.action(`job:manage:${token}:cancel_delete`);
+  assert.equal(f.tables.jobs.length, 1);
+  assert.match(last(f, 'sendText').args[1], /Elanınız saxlanıldı/);
+
+  await f.action('job:edit:1');
+  token = p.browse_filters.management.token;
+  await f.action(`job:manage:${token}:more`);
+  await f.action(`job:manage:${token}:delete`);
+  f.tables.jobs[0].revision = 2;
+  await f.action(`job:manage:${token}:confirm_delete`);
+  assert.equal(f.tables.jobs.length, 1);
+  assert.match(last(f, 'sendText').args[1], /Elan tapılmadı və ya dəyişib/);
+
+  await f.action('job:edit:1');
+  token = p.browse_filters.management.token;
+  await f.action(`job:manage:${token}:more`);
+  await f.action(`job:manage:${token}:delete`);
+  await f.action(`job:manage:${token}:confirm_delete`);
+  assert.equal(f.tables.jobs.length, 0);
+  assert.match(last(f, 'sendText').args[1], /Elanınız uğurla silindi/);
+});
 test('WhatsApp profile deletion requires fresh confirmation token and passes verified caller identity for both roles', async () => {
   for (const role of ['seeker', 'employer']) {
     const f = managed();
