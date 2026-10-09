@@ -180,6 +180,45 @@ test('stale business decisions are idempotent and rejection keeps business locke
   assert.equal(f.state(), 'business_type');
   assert.equal(e.registration_token, null);
 });
+test('employer profile omits the seeker minimum-salary preference', async () => {
+  const f = fixture();
+  await voenStep(f);
+  await f.action('job:profile');
+  assert.doesNotMatch(last(f, 'sendText').args[1], /Minimum maaş:/);
+});
+test('rejected businesses appear in the admin re-review queue and can pass fresh manual VÖEN review', async () => {
+  const f = fixture();
+  f.registry.lookup = async () => ({ status: 'unavailable' });
+  const e = await pendingBusiness(f);
+  const staleToken = e.registration_token;
+  assert.equal(await f.businesses.moderate(e.profile_id, staleToken, false, 7), true);
+  assert.notEqual(e.registration_token, staleToken);
+  const cards = [];
+  f.businesses.telegram.sendPhoto = async (_url, caption, buttons) => {
+    cards.push({ caption, buttons });
+    return { message_id: 1 };
+  };
+  f.businesses.telegram.sendTo = async (_chatId, text) => {
+    cards.push({ text });
+    return { message_id: 1 };
+  };
+  f.client.storage.from = () => ({
+    createSignedUrl: async () => ({ data: { signedUrl: 'https://private.example/photo' }, error: null }),
+  });
+  await f.businesses.rejected(7);
+  assert.ok(cards.some((card) => card.text?.includes('Rədd edilmiş biznes profilləri')));
+  assert.ok(
+    cards.some((card) =>
+      card.buttons?.inline_keyboard[0][0].callback_data.startsWith('bizr:a:'),
+    ),
+  );
+  assert.equal(
+    await f.businesses.verifyManually(e.profile_id, e.registration_token, 'Official legal name', 7, 'rejected'),
+    true,
+  );
+  assert.equal(await f.businesses.moderate(e.profile_id, e.registration_token, true, 7, 'rejected'), true);
+  assert.equal(e.registration_status, 'approved');
+});
 test('profile edits invalidate approval and require fresh VÖEN/photo/review', async () => {
   const f = fixture();
   await approvedEmployer(f);

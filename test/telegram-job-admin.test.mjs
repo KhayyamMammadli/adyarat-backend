@@ -604,7 +604,7 @@ test('plain greeting opens all admin features and installs a persistent command-
     .at(-1)
     .markup.inline_keyboard.flat()
     .map((b) => b.callback_data);
-  for (const action of ['tg:new', 'tg:pending', 'tg:businesses', 'tg:stats'])
+  for (const action of ['tg:new', 'tg:pending', 'tg:businesses', 'tg:businesses:rejected', 'tg:stats'])
     assert(actions.includes(action));
   await f.click('tg:new');
   assert.equal(f.session().kind, 'create');
